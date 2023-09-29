@@ -7,7 +7,7 @@ from lib.classes import Duplex
 app = FastAPI()
 
 
-@app.put("/curl/{identifier}/{file_name}")
+@app.put("/{identifier}/{file_name}")
 async def upload_file(request: Request, identifier: str):
     duplex = Duplex.from_upload(request)
     file_size, transfered = await duplex.transfer()
