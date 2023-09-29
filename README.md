@@ -9,7 +9,7 @@ Upload a file :
 curl --upload-file myfile.bin http://localhost:8000/my-file-upload/
 ```
 
-Download the file :
+Download the file (you can also use your browser) :
 ```bash
-wget http://localhost:8000/my-file-upload
+curl http://localhost:8000/my-file-upload --output myfile.bin
 ```
