@@ -13,3 +13,7 @@ Download the file (you can also use your browser) :
 ```bash
 curl http://localhost:8000/my-file-upload --output myfile.bin
 ```
+
+### Demonstration
+https://github.com/codeSamuraii/transit.sh/assets/17270548/7b6e46c7-3595-4a38-bc9b-7b89c0eadc81
+
