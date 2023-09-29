@@ -6,7 +6,7 @@ The API waits for the receiver to start downloading before accepting more incomi
 ### Usage
 Upload a file :
 ```bash
-curl --upload-file myfile.bin http://localhost:8000/my-file-upload/
+curl --upload-file myfile.bin http://localhost:8000/curl/my-file-upload/
 ```
 
 Download the file (you can also use your browser) :
