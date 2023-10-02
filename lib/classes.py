@@ -82,4 +82,4 @@ class Duplex:
                 yield chunk
             else:
                 break
-
+        Duplex.instances.pop(self.identifier)
