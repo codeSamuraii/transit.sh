@@ -49,7 +49,8 @@ class Duplex:
 
     @classmethod
     def from_identifer(cls, identifier: str):
-        if duplex := cls.instances.get(identifier):
+        duplex = cls.instances.get(identifier)
+        if duplex is not None:
             return duplex
         else:
             raise KeyError(f"Duplex '{identifier}' not found.")
@@ -75,6 +76,10 @@ class Duplex:
     
     async def receive(self):
         self.client_connected.set()
-        while chunk := await self.queue.get():
-            yield chunk
+        while True:
+            chunk = await self.queue.get()
+            if chunk is not None:
+                yield chunk
+            else:
+                break
 
