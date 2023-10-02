@@ -7,6 +7,11 @@ from lib.classes import Duplex
 app = FastAPI()
 
 
+@app.get("/health")
+async def get_health():
+    return {"status": "ok"}
+
+
 @app.put("/{identifier}/{file_name}")
 async def upload_file(request: Request, identifier: str):
     duplex = Duplex.from_upload(request)
