@@ -5,7 +5,17 @@ from lib.classes import Duplex
 
 
 app = FastAPI()
-    
+
+
+@app.get("/")
+async def root_redirect():
+    return RedirectResponse("https://github.com/codeSamuraii/transit.sh")
+
+
+@app.get("/health")
+async def get_health():
+    return {"status": "ok"}
+
 
 @app.put("/{identifier}/{file_name}")
 async def upload_file(request: Request, identifier: str):
@@ -25,13 +35,3 @@ async def get_file(identifier: str):
         media_type=file_type,
         headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": file_size}
     )
-
-
-@app.get("/")
-async def root_redirect():
-    return RedirectResponse("https://github.com/codeSamuraii/transit.sh")
-
-
-@app.get("/health")
-async def get_health():
-    return {"status": "ok"}
