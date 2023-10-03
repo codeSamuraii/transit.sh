@@ -28,14 +28,17 @@ async def upload_file(request: Request, identifier: str):
 
 @app.get("/{identifier}")
 async def get_file(identifier: str):
-    duplex = Duplex.from_identifer(identifier)
-    file_name, file_size, file_type = duplex.get_file_info()
-
-    return StreamingResponse(
-        duplex.receive(),
-        media_type=file_type,
-        headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
-    )
+    try:
+        duplex = Duplex.from_identifer(identifier)
+        file_name, file_size, file_type = duplex.get_file_info()
+    except KeyError:
+        return {"error": "identifier not found"}
+    else:
+        return StreamingResponse(
+            duplex.receive(),
+            media_type=file_type,
+            headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
+        )
 
  
 app.mount('/static', StaticFiles(directory='static', html=True), name='static')
