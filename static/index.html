@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en-gb">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Transit.sh</title>
+        <meta property="og:title" content="Transit.sh">
+        <meta property="og:site_name" content="Transit.sh">
+        <link rel="stylesheet" href="/static/style.css">
+    </head>
+    <body>
+        <main>
+            <div class="hero">
+                <header class="hero__content">
+                    <div class="wrapper">
+                        <h1>Transit.sh</h1>
+                    </div>
+                </header>
+            </div>
+            <div class="wrapper post__entry">
+                <h3 id="usage">Usage</h3>
+                <p>Upload a file :</p>
+                <pre><code class="language-bash">curl --upload-file myfile.bin https://transit-sh.onrender.com/my-test-upload/</code></pre>
+                <p>Download the file :</p>
+                <pre><code class="language-bash"> curl -JLO  https://transit-sh.onrender.com/my-test-upload</code></pre>
+                <p>The transfer starts when both clients are connected.</p>
+                <hr>
+                <p><em>This service is hosted as a proof-of-concept for an <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a>.</em></p>
+            </div>
+        </main>
+        <footer class="footer"><div class="footer__copyright"></div></footer>
+    </body>
+</html>

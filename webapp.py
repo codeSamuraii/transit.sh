@@ -1,5 +1,6 @@
-from fastapi import FastAPI, UploadFile, Request
-from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse, FileResponse
 
 from lib.classes import Duplex
 
@@ -7,9 +8,9 @@ from lib.classes import Duplex
 app = FastAPI()
 
 
-@app.get("/")
-async def root_redirect():
-    return RedirectResponse("https://github.com/codeSamuraii/transit.sh")
+@app.get('/')
+async def index():
+    return FileResponse('static/index.html')
 
 
 @app.get("/health")
@@ -35,3 +36,6 @@ async def get_file(identifier: str):
         media_type=file_type,
         headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
     )
+
+ 
+app.mount('/static', StaticFiles(directory='static', html=True), name='static')
