@@ -1,4 +1,5 @@
 import asyncio
+import weakref
 from fastapi import Request
 from dataclasses import dataclass
 
@@ -12,15 +13,13 @@ class File:
 
 class Duplex:
 
-    instances = {}
+    instances = weakref.WeakValueDictionary()
 
     def __init__(self, stream, identifier: str, file: File, wait_for_client: bool):
         self.stream = stream
         self.identifier = identifier
         self.file = file
         self.queue = asyncio.Queue(1 if wait_for_client else 0)
-
-        self.wait_for_client = wait_for_client
         self.client_connected = asyncio.Event()
     
     @staticmethod
@@ -42,15 +41,8 @@ class Duplex:
         return duplex
 
     @classmethod
-    def from_upload_nowait(cls, request: Request):
-        duplex = cls.from_upload(request)
-        duplex.wait_for_client = False
-        return duplex
-
-    @classmethod
     def from_identifer(cls, identifier: str):
-        duplex = cls.instances.get(identifier)
-        if duplex is not None:
+        if duplex := cls.instances.get(identifier):
             return duplex
         else:
             raise KeyError(f"Duplex '{identifier}' not found.")
@@ -61,14 +53,13 @@ class Duplex:
     async def transfer(self):
         bytes_read = 0
 
-        if self.wait_for_client:
-            print(f"Waiting for client to connect to '{self.identifier}'...")
-            await self.client_connected.wait()
-            print(f"Client connected to '{self.identifier}'.")
+        print(f"Waiting for client to connect to '{self.identifier}'...")
+        await self.client_connected.wait()
+        print(f"Client connected to '{self.identifier}'.")
 
         async for chunk in self.stream():
             bytes_read += len(chunk)
-            print(f"{len(chunk)} bytes read: {bytes_read}/{self.file.size}.", end='\r')
+            print(f"Transfering: {bytes_read}/{self.file.size}", end='\r')
             await self.queue.put(chunk)
     
         await self.queue.put(None)
@@ -82,4 +73,6 @@ class Duplex:
                 yield chunk
             else:
                 break
-        Duplex.instances.pop(self.identifier)
+    
+    def __del__(self):
+        print(f"Deleting duplex '{self.identifier}'. {len(self.instances) - 1} duplexes remaining.")
