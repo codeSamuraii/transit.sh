@@ -28,7 +28,7 @@ class Duplex:
         identifier = request.path_params.get('identifier')
         file = File(
             name=request.path_params.get('file_name'),
-            size=request.headers.get('content-length'),
+            size=int(request.headers.get('content-length')),
             content_type=request.headers.get('content-type')
         )
         return stream, identifier, file
@@ -55,15 +55,14 @@ class Duplex:
 
         print(f"Waiting for client to connect to '{self.identifier}'...")
         await self.client_connected.wait()
-        print(f"Client connected to '{self.identifier}'.")
 
+        print(f"Client connected to '{self.identifier}'. Transfering...")
         async for chunk in self.stream():
             bytes_read += len(chunk)
-            print(f"Transfering: {bytes_read}/{self.file.size}", end='\r')
             await self.queue.put(chunk)
     
         await self.queue.put(None)
-        return self.file.size, bytes_read
+        return bytes_read, self.file.size
     
     async def receive(self):
         self.client_connected.set()
