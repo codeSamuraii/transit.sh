@@ -6,11 +6,11 @@ name = "pypi"
 [packages]
 fastapi = "*"
 python-multipart = "*"
-eventlet = "*"
 uvicorn = "*"
+gunicorn = "*"
 
 [dev-packages]
 ipython = "*"
 
 [requires]
-python_version = "3.10"
+python_version = "3.12"
