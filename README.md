@@ -22,12 +22,12 @@ _You can also navigate to the URL with your browser._
 https://github.com/codeSamuraii/transit.sh/assets/17270548/7b6e46c7-3595-4a38-bc9b-7b89c0eadc81
 
 ### Quick set-up
-Dependencies (requires `pipenv`) :
+Dependencies :
 ```bash
-pipenv install
+pip install -r requirements.txt
 ```
 
 Start the API :
 ```bash
-pipenv run uvicorn webapp:app --host 0.0.0.0 --port 80
+uvicorn webapp:app --host 0.0.0.0 --port 80
 ```
