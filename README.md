@@ -1,4 +1,4 @@
-# [Transit.sh](https://transit-sh.onrender.com)
+# [Transit.sh](https://transit.sh)
 This very simple API allows you to transfer large files seamlessly without the need for storage.
 
 Leveraging [asyncio](https://docs.python.org/3/library/asyncio.html) and [queues](https://docs.python.org/3/library/asyncio-queue.html), the API waits for the receiver to start downloading before accepting more incoming data.<br>
@@ -8,12 +8,12 @@ Leveraging [asyncio](https://docs.python.org/3/library/asyncio.html) and [queues
 
 Upload a file :
 ```bash
-curl --upload-file myfile.bin https://transit-sh.onrender.com/my-test-upload/
+curl --upload-file myfile.bin https://transit.sh/my-test-upload/
 ```
 
 Download the file :
 ```bash
- curl -JLO  https://transit-sh.onrender.com/my-test-upload
+ curl -JLO  https://transit.sh/my-test-upload
 ```
 _You can also navigate to the URL with your browser._
 
