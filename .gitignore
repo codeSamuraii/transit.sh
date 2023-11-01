@@ -1,3 +1,4 @@
 *.bin
 Pipfile
 Pipfile.lock
+static/*.css
