@@ -41,9 +41,6 @@ async def get_file(identifier: str):
             headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
         )
 
-if Path('/static-files').exists():
-    print('Using mounted disk static files.')
-    app.mount('/static', StaticFiles(directory='/static-files', html=True), name='static')
-else:
-    print('Using local static directory files.')
-    app.mount('/static', StaticFiles(directory='static', html=True), name='static')
+
+app.mount('/static', StaticFiles(directory='static', html=True), name='static')
+app.mount('/css', StaticFiles(directory='/css'), name='static')
