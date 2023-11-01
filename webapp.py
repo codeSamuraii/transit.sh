@@ -1,3 +1,4 @@
+from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, FileResponse
@@ -40,5 +41,9 @@ async def get_file(identifier: str):
             headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
         )
 
- 
-app.mount('/static', StaticFiles(directory='static', html=True), name='static')
+if Path('/static-files').exists():
+    print('Using mounted disk static files.')
+    app.mount('/static', StaticFiles(directory='/static-files', html=True), name='static')
+else:
+    print('Using local static directory files.')
+    app.mount('/static', StaticFiles(directory='static', html=True), name='static')
