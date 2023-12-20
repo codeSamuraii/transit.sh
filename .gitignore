@@ -2,3 +2,4 @@
 Pipfile
 Pipfile.lock
 static/*.css
+*.code-workspace

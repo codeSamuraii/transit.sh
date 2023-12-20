@@ -53,13 +53,16 @@ class Duplex:
     async def transfer(self):
         bytes_read = 0
 
-        print(f"Waiting for client to connect to '{self.identifier}'...")
-        await self.client_connected.wait()
+        #print(f"Waiting for client to connect to '{self.identifier}'...")
+        #await self.client_connected.wait()
 
         print(f"Client connected to '{self.identifier}'. Transfering...")
         async for chunk in self.stream():
             bytes_read += len(chunk)
             await self.queue.put(chunk)
+
+            # The first chunk is read, otherwise the client times out.
+            await self.client_connected.wait()
     
         await self.queue.put(None)
         return bytes_read, self.file.size
