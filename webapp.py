@@ -20,7 +20,7 @@ async def get_health():
 
 
 @app.put("/{identifier}/{file_name}")
-async def upload_file(request: Request, identifier: str):
+async def upload_file(request: Request, identifier: str, file_name: str):
     duplex = Duplex.from_upload(request)
     transfered, file_size = await duplex.transfer()
 
@@ -42,9 +42,11 @@ async def get_file(identifier: str):
         )
 
 
-# Mount static files
+# Mount local static directory for HTML
 app.mount('/static', StaticFiles(directory='static', html=True), name='static')
+
+# Mount remote disk if present or local static for CSS
 if Path('/extra').exists():
-    app.mount('/extra', StaticFiles(directory='/extra'), name='css')
+    app.mount('/css', StaticFiles(directory='/extra'), name='css')
 else:
-    app.mount('/extra', StaticFiles(directory='static'), name='css')
+    app.mount('/css', StaticFiles(directory='static'), name='css')
