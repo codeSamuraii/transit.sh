@@ -21,16 +21,29 @@
                 </header>
             </div>
             <div class="wrapper post__entry">
-                <h3 id="usage">Usage</h3>
-                <p>Upload a file :</p>
-                <pre><code class="language-bash">curl --upload-file myfile.bin https://transit.sh/my-test-upload/</code></pre>
-                <p>Download the file :</p>
-                <pre><code class="language-bash"> curl -JLO  https://transit.sh/my-test-upload</code></pre>
-                <p>The transfer starts when both clients are connected.</p>
-                <hr>
-                <p><em>This service is hosted as a proof-of-concept for an <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a>.</em></p>
+                <p>Transfer files directly in your terminal. No subscription, no storage, no additional tool needed.</p>
+                <pre><b># Send</b>
+curl -T <code style="color:#fbfbaa">&lt;file&gt;</file></code> https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
+                <pre><b># Receive</b>
+curl -JLO https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code></pre>
+                <pre><b># Example</b>
+curl -T /music/song.mp3 https://transit.sh/music-for-dad/
+curl -JLO https://transit.sh/music-for-dad</pre>
+                <h3 id="information">Information</h3>
+                <p><ul>
+                    <li>Files transiting aren't stored by the service at any point and only exist in RAM one chunk at a time.</li>
+                    <li>For files larger than 100MB, the receiver should wait a few minutes before starting the download.</li>                    
+                    <li>Files larger than 2GB are often rejected by the cloud provider's network.</li>
+                    <li>This service is hosted as a proof-of-concept for my <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> with no guarantees.</li>
+                </ul></p>
+                <h3 id="stepbystep">Step-by-step</h3>
+                <p><ol>
+                    <li>Run the first command — with your own file and identifier — to send the file.</i></li>
+                    <li>Wait before starting the download on the receiver side.<br><i>1MB: 5 sec. – 100MB: 1 min. – 1GB: 5 min.</i></li>
+                    <li>Run the second command — with the correct identifier and no trailing <code class="language-bash">/</code> — to receive the file.</li>
+                </ol></p>
             </div>
         </main>
-        <footer class="footer"><div class="footer__copyright"></div></footer>
+        <footer class="footer"><div class="footer__copyright">By <a href="https://github.com/codeSamuraii/">@codesamuraii</a></div></footer>
     </body>
 </html>
