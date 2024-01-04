@@ -1,19 +1,26 @@
 # [Transit.sh](https://transit.sh)
-This very simple API allows you to transfer large files seamlessly without the need for storage.
+Direct file transfer in your terminal. No subscription, no storage, no additional tool needed.
 
 Leveraging [asyncio](https://docs.python.org/3/library/asyncio.html) and [queues](https://docs.python.org/3/library/asyncio-queue.html), the API waits for the receiver to start downloading before accepting more incoming data.<br>
 
-## Usage
-> The service is currently deployed as a proof-of-concept, however no guarantees apply for the use of the service.
+> The service is currently deployed as a proof-of-concept without any no guarantees. Access it [here](https://transit.sh).
 
-Upload a file :
+## Usage
+
 ```bash
-curl --upload-file myfile.bin https://transit.sh/my-test-upload/
+# Send
+curl -T <file> https://transit.sh/<some-string>/
 ```
 
-Download the file :
 ```bash
- curl -JLO  https://transit.sh/my-test-upload
+# Receive
+curl -JLO https://transit.sh/<some-string>/
+```
+
+```bash
+# Example
+curl -T /music/song.mp3 https://transit.sh/music-for-dad/
+curl -JLO https://transit.sh/music-for-dad/
 ```
 _You can also navigate to the URL with your browser._
 
