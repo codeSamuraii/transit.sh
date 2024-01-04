@@ -7,7 +7,7 @@
         <title>Transit.sh</title>
         <meta property="og:title" content="Transit.sh">
         <meta property="og:site_name" content="Transit.sh">
-        <link rel="stylesheet" href="/css/style.css">
+        <link rel="stylesheet" href="/static/style.css">
         <link rel="icon" href="data:;base64,iVBORw0KGgo=">
         <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
     </head>
@@ -21,27 +21,27 @@
                 </header>
             </div>
             <div class="wrapper post__entry">
-                <p>Transfer files directly in your terminal. No subscription, no storage, no additional tool needed.</p>
+                <p>Direct file transfer with your terminal. No subscription, no storage, no additional tool needed.</p>
                 <pre><b># Send</b>
-curl -T <code style="color:#fbfbaa">&lt;file&gt;</file></code> https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
+curl -T <var>&lt;file&gt;</var> https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
                 <pre><b># Receive</b>
-curl -JLO https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code></pre>
+curl -JLO https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
                 <pre><b># Example</b>
-curl -T /music/song.mp3 https://transit.sh/music-for-dad/
-curl -JLO https://transit.sh/music-for-dad</pre>
+curl -T <var>/music/song.mp3</var> https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/
+curl -JLO https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/</pre>
                 <h3 id="information">Information</h3>
-                <p><ul>
-                    <li>Files transiting aren't stored by the service at any point and only exist in RAM one chunk at a time.</li>
+                <ul>
+                    <li>Transferred files aren't saved by the service at any point and only exist in memory one chunk at a time.</li>
                     <li>For files larger than 100MB, the receiver should wait a few minutes before starting the download.</li>                    
-                    <li>Files larger than 2GB are often rejected by the cloud provider's network.</li>
+                    <li>Files larger than 2GB are often rejected by the hosting provider's network.</li>
                     <li>This service is hosted as a proof-of-concept for my <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> with no guarantees.</li>
-                </ul></p>
+                </ul>
                 <h3 id="stepbystep">Step-by-step</h3>
-                <p><ol>
-                    <li>Run the first command — with your own file and identifier — to send the file.</i></li>
+                <ol>
+                    <li>Run the first command — with your own file and identifier — to send the file.</li>
                     <li>Wait before starting the download on the receiver side.<br><i>1MB: 5 sec. – 100MB: 1 min. – 1GB: 5 min.</i></li>
-                    <li>Run the second command — with the correct identifier and no trailing <code class="language-bash">/</code> — to receive the file.</li>
-                </ol></p>
+                    <li>Run the second command — with the correct identifier — to receive the file.</li>
+                </ol>
             </div>
         </main>
         <footer class="footer"><div class="footer__copyright">By <a href="https://github.com/codeSamuraii/">@codesamuraii</a></div></footer>
