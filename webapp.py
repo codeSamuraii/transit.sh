@@ -44,7 +44,7 @@ async def get_file(identifier: str):
 
 # Mount static files
 app.mount('/static', StaticFiles(directory='static', html=True), name='static')
-if Path('/css').exists():
-    app.mount('/css', StaticFiles(directory='/css'), name='css')
+if Path('/extra').exists():
+    app.mount('/extra', StaticFiles(directory='/extra'), name='css')
 else:
-    app.mount('/css', StaticFiles(directory='static'), name='css')
+    app.mount('/extra', StaticFiles(directory='static'), name='css')
