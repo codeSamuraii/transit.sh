@@ -38,7 +38,7 @@ async def get_file(identifier: str):
         duplex = Duplex.from_identifer(identifier)
         file_name, file_size, file_type = duplex.get_file_info()
     except KeyError:
-        return PlainTextResponse("File not found", status_code=404)
+        return PlainTextResponse(None, status_code=404)
     else:
         return StreamingResponse(
             duplex.receive(),
