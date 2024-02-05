@@ -32,9 +32,8 @@ curl -T <var>/music/song.mp3</var> https://transit.sh/<code style="color:#fbfbaa
 curl -JLO https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/</pre>
                 <h3 id="information">Information</h3>
                 <ul>
-                    <li>Transferred files aren't saved by the service at any point and only exist in memory one chunk at a time.</li>
-                    <li>For files larger than 100MB, the receiver should wait a few minutes before starting the download.</li>                    
-                    <li>Files larger than 2GB are often rejected by the hosting provider's network.</li>
+                    <li>While the API allows to transfer large files instantly, my hosting provider's CDN introduces delays and limitations. <i>See step-by-step.</i></li>
+                    <li>Files are not stored by the service at any point and only exist in memory one chunk at a time.</li>
                     <li>This service is hosted as a proof-of-concept for my <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> with no guarantees.</li>
                 </ul>
                 <h3 id="stepbystep">Step-by-step</h3>
