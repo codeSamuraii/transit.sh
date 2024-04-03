@@ -1,7 +1,8 @@
+import asyncio
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse, FileResponse, PlainTextResponse
+from fastapi.responses import StreamingResponse, FileResponse, PlainTextResponse, Response
 
 from lib.classes import Duplex
 
@@ -27,9 +28,16 @@ async def get_health():
 @app.put("/{identifier}/{file_name}")
 async def upload_file(request: Request, identifier: str, file_name: str):
     duplex = Duplex.from_upload(request)
-    transfered, file_size = await duplex.transfer()
+    id_ = duplex.identifier
 
-    return {"size": file_size, "transfered": transfered}
+    print(f"[{id_}] Waiting for client to connect...")
+    await duplex.client_connected.wait()
+
+    print(f"[{id_}] Client connected. Transfering...")
+    await duplex.transfer()
+
+    print(f"[{id_}] Transfer complete.")
+    return Response(status_code=200)
 
 
 @app.get("/{identifier}")
@@ -39,12 +47,15 @@ async def get_file(identifier: str):
         file_name, file_size, file_type = duplex.get_file_info()
     except KeyError:
         return PlainTextResponse("File not found", status_code=404)
-    else:
-        return StreamingResponse(
-            duplex.receive(),
-            media_type=file_type,
-            headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
-        )
+    
+    duplex.client_connected.set()
+    await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        duplex.receive(),
+        media_type=file_type,
+        headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
+    )
 
 
 # Mount local static directory for HTML

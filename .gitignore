@@ -4,3 +4,4 @@ Pipfile.lock
 static/*.css
 *.code-workspace
 conf/
+*.bak
