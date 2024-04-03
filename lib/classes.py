@@ -57,7 +57,6 @@ class Duplex:
         async for chunk in self.stream():
             bytes_read += len(chunk)
             await self.queue.put(chunk)
-            print(f">> {bytes_read}")
     
         await self.queue.put(None)
 
