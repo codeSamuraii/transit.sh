@@ -24,8 +24,9 @@
             <div class="wrapper post__entry">
                 <p>Direct file transfer with your terminal. No subscription, no storage, no additional tool needed.</p>
                 <pre><b># Send</b>
-curl -T <var>&lt;file&gt;</var> https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
+curl -v -T <var>&lt;file&gt;</var> https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
                 <pre><b># Receive</b>
+Wait for <i>We are completely uploaded and fine</i> on sender side.
 curl -JLO https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
                 <pre><b># Example</b>
 curl -T <var>/music/song.mp3</var> https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/
