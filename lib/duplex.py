@@ -2,7 +2,6 @@ import asyncio
 import weakref
 from fastapi import Request
 from dataclasses import dataclass
-from fastapi.responses import StreamingResponse
 
 
 @dataclass
@@ -16,33 +15,48 @@ class Duplex:
 
     instances = weakref.WeakValueDictionary()
 
-    def __init__(self, stream, identifier: str, file: File, wait_for_client: bool):
-        self.stream = stream
+    def __init__(self, identifier: str, file: File, stream=None):
         self.identifier = identifier
         self.file = file
-        self.queue = asyncio.Queue(1 if wait_for_client else 0)
+        self.queue = asyncio.Queue(1)
         self.client_connected = asyncio.Event()
     
     @staticmethod
-    def get_upload_details(request: Request):
-        stream = request.stream
-        identifier = request.path_params.get('identifier')
+    def get_file_from_request(request: Request):
         file = File(
             name=request.path_params.get('file_name'),
             size=int(request.headers.get('content-length')),
             content_type=request.headers.get('content-type')
         )
-        return stream, identifier, file
+        return file
+    
+    @staticmethod
+    def get_file_from_header(header: dict):
+        file = File(
+            name=header['file_name'],
+            size=int(header['file_size']),
+            content_type=header['file_type']
+        )
+        return file
+    
+    def get_file_info(self):
+        return self.file.name, self.file.size, self.file.content_type
     
     @classmethod
-    def from_upload(cls, request: Request):
-        stream, identifier, file = cls.get_upload_details(request)
-        duplex = cls(stream, identifier, file, wait_for_client=True)
+    def create_duplex(cls, identifier: str, file: File):
+        duplex = cls(identifier, file)
+        cls.instances[identifier] = duplex
+        return duplex
+    
+    @classmethod
+    def create_duplex_ws(cls, identifier: str, name: str, size: int, type: str):
+        file = File(name=name, size=size, content_type=type)
+        duplex = cls(identifier, file)
         cls.instances[identifier] = duplex
         return duplex
 
     @classmethod
-    def from_identifer(cls, identifier: str):
+    def get(cls, identifier: str):
         if duplex := cls.instances.get(identifier):
             return duplex
         else:
@@ -50,18 +64,22 @@ class Duplex:
     
     def get_file_info(self):
         return self.file.name, self.file.size, self.file.content_type
+
+    async def wait_for_empty_queue(self, seconds=600):
+        while not self.queue.empty() and seconds > 0:
+            await asyncio.sleep(1)
+            seconds -= 1
     
-    async def transfer(self):
+    async def transfer(self, stream):
         bytes_read = 0
     
-        async for chunk in self.stream():
+        async for chunk in stream:
             bytes_read += len(chunk)
             await self.queue.put(chunk)
     
         await self.queue.put(None)
-
-        while not self.queue.empty():
-            await asyncio.sleep(0.5)
+        await self.wait_for_empty_queue()
+        return bytes_read
     
     async def receive(self):
         while True:
