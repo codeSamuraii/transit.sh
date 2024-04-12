@@ -23,27 +23,31 @@
             </div>
             <div class="wrapper post__entry">
                 <p>Direct file transfer with your terminal. No subscription, no storage, no additional tool needed.</p>
+                <p>You can use <code>curl</code> (with limitations) or my <code>python</code> one-liner.</p>
+                <h3 id="curl">Using cURL</h3>
+                <p><code>curl</code> is available on most systems (macOS, Linux) but is only suited for small files.<br>Because of this services's CDN, HTTP transfers have limitations.</p>
                 <pre><b># Send</b>
-curl -v -T <var>&lt;file&gt;</var> https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/
-
-<i>Wait for "We are completely uploaded and fine" before next step.</i></pre>
+curl -T <var>&lt;file&gt;</var> https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
                 <pre><b># Receive</b>
 curl -JLO https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
                 <pre><b># Example</b>
 curl -T <var>/music/song.mp3</var> https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/
 curl -JLO https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/</pre>
-                <h3 id="information">Information</h3>
+                <p>Tip: you can also visit the link with your browser to download the file.</p>
+                <h3 id="python">Using Python</h3>
+                <p>This <code>python</code> one-liner uses websockets and doesn't have any limitations.<br>The script will install the <a href="https://pypi.org/project/websockets/">websockets</a> package then ask for your file and identifier.<br>Just paste the following in your terminal:</p>
+                <pre><b># Send</b>
+python -c 'exec("""\nimport pip\npip.main(["install", "websockets"])\nimport json\nimport asyncio\nimport websockets\nfrom pathlib import Path\ndef ask_for_path():\n    while True:\n        path = Path(input("File path: ")).resolve()\n        if path.is_file():\n            break\n        print("Invalid file path. Example:  /tmp/file.txt  /Users/jean/Documents/movie.mp4")\n    return path\ndef ask_for_identifier():\n    while True:\n        identifer = input("ID: ")\n        if identifer is not None:\n            break\n    return identifer\nasync def send():\n    file_path = ask_for_path()\n    identifier = ask_for_identifier()\n    async with websockets.connect(f"wss://transit.sh/send/{identifier}") as websocket:\n        file = Path(file_path).resolve()\n        file_name, file_size, file_type = file.name, file.stat().st_size, "application/octet-stream"\n        header = json.dumps({"file_name": file_name, "file_size": file_size, "file_type": file_type})\n        await websocket.send(header)\n        print("Waiting for other peer to connect...")\n        while (msg := await websocket.recv()) != "Go for file chunks":\n            print(f"Unexpected message: {msg}")\n        print("Peer connected. Starting transfer.")\n        with file.open("rb") as fd:\n            bytes_read = 0\n            while chunk := fd.read(2**15):\n                await websocket.send(chunk)\n                bytes_read += len(chunk)\n                print(f"Transfering... {bytes_read/file_size*100:.2f}%", end="\\r", flush=True)\n        await websocket.send(str().encode())\n        print("\\nDone.")\nasyncio.run(send())\n""")'</pre>
+<pre><b># Receive</b>
+python -c 'exec("""\nimport pip\npip.main(["install", "websockets"])\nimport json\nimport asyncio\nimport websockets\nfrom pathlib import Path\ndef ask_for_identifier():\n    while True:\n        identifer = input("ID: ")\n        if identifer is not None:\n            break\n    return identifer\nasync def receive():\n    identifier = ask_for_identifier()\n    path = Path(".").resolve()\n    async with websockets.connect(f"wss://transit.sh/receive/{identifier}") as websocket:\n        header_json = await websocket.recv()\n        header = json.loads(header_json)\n        file_name, file_size, file_type = header["file_name"], float(header["file_size"]), header["file_type"]\n        print(f"File: {file_name} - Size: {file_size / 1024**2:.2f}MB")\n        with open(path / file_name, "wb") as fd:\n            await websocket.send("Go for file chunks")\n            bytes_received = 0\n            while (chunk := await websocket.recv()) != b"":\n                fd.write(chunk)\n                bytes_received += len(chunk)\n                print(f"Receiving... {bytes_received/file_size*100:.2f}%", end="\\r", flush=True)\n        print("\\nTransfer complete.")\nasyncio.run(receive())\n""")'
+</pre>
+                <p>Note: the received file will be saved in the same directory the script was executed.</p>
+                <h2 id="information">Information</h3>
                 <ul>
-                    <li>While the API allows to transfer large files instantly, my hosting provider's CDN introduces delays and limitations. <i>See step-by-step.</i></li>
+                    <li>While the API allows to transfer large files instantly, my hosting provider's CDN introduces delays and limitations for HTTP transfers.<br>If <code>curl</code> behaves unexpectedly, use the <code>python</code> one-liner for websockets that aren't limited.</li>
                     <li>Files are not stored by the service at any point and only exist in memory one chunk at a time.</li>
                     <li>This service is hosted as a proof-of-concept for my <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> with no guarantees.</li>
                 </ul>
-                <h3 id="stepbystep">Step-by-step</h3>
-                <ol>
-                    <li>Run the first command — with your own file and identifier — to send the file.</li>
-                    <li>Wait before starting the download on the receiver side.<br><i>1MB: 5 sec. – 100MB: 1 min. – 1GB: 5 min.</i></li>
-                    <li>Run the second command — with the correct identifier — to receive the file.</li>
-                </ol>
             </div>
         </main>
         <footer class="footer"><div class="footer__copyright">By <a href="https://github.com/codeSamuraii/">@codesamuraii</a></div></footer>
