@@ -25,7 +25,7 @@
                 <p>Direct file transfer with your terminal. No subscription, no storage, no additional tool needed.</p>
                 <p>You can use <code>curl</code> (with limitations) or my <code>python</code> one-liner.</p>
                 <h3 id="curl">Using cURL</h3>
-                <p><code>curl</code> is available on most systems (macOS, Linux) but is only suited for small files.<br>Because of this service's CDN, HTTP transfers have limitations.</p>
+                <p><code>curl</code> is available on most systems but is not suited for large files. <br>Because of this service's provider HTTP transfers have limitations. <b>100MiB maximum.</b></p>
                 <pre><b># Send</b>
 curl -T <var>&lt;file&gt;</var> https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
                 <pre><b># Receive</b>

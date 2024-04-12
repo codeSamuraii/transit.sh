@@ -11,7 +11,7 @@ router = APIRouter()
 async def websocket_upload(websocket: WebSocket, identifier: str):
     uid = identifier
     await websocket.accept()
-    print(f"{uid} - Websocket transfer request." )
+    print(f"{uid} - Websocket upload request." )
 
     header = await websocket.receive_json()
 
@@ -26,10 +26,10 @@ async def websocket_upload(websocket: WebSocket, identifier: str):
     await duplex.client_connected.wait()
     await websocket.send_text(f"Go for file chunks")
 
-    print(f"{uid} - Starting transfer...")
+    print(f"{uid} - Starting upload...")
     await duplex.transfer(websocket.iter_bytes())
 
-    print(f"{uid} - Transfer complete.")
+    print(f"{uid} - Upload complete.")
 
 
 @router.websocket("/receive/{identifier}")
@@ -56,9 +56,9 @@ async def websocket_download(websocket: WebSocket, identifier: str):
     duplex.client_connected.set()
     await asyncio.sleep(0.5)
 
-    print(f"{uid} - Starting transfer...")
+    print(f"{uid} - Starting download...")
     async for chunk in duplex.receive():
         await websocket.send_bytes(chunk)
     await websocket.send_bytes(b'')
-    print(f"{uid} - Transfer complete.")
+    print(f"{uid} - Download complete.")
 

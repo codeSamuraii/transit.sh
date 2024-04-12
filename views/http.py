@@ -10,19 +10,23 @@ router = APIRouter()
 @router.put("/{identifier}/{file_name}")
 async def http_upload(request: Request, identifier: str, file_name: str):
     uid = identifier
-    print(f"{uid} - HTTP transfer request." )
+    print(f"{uid} - HTTP upload request." )
 
     file = Duplex.get_file_from_request(request)
+
+    if file.size > 100*1024**2:
+        return PlainTextResponse("File too large. 100MiB maximum for HTTP.", status_code=413)
+
     duplex = Duplex.create_duplex(identifier, file)
 
     print(f"{uid} - Waiting for client to connect...")
     await duplex.client_connected.wait()
 
-    print(f"{uid} - Client connected. Transfering...")
+    print(f"{uid} - Client connected. Uploading...")
     await duplex.transfer(request.stream())
 
-    print(f"{uid} - Transfer complete.")
-    return Response(status_code=200)
+    print(f"{uid} - Upload complete.")
+    return PlainTextResponse("Transfer complete.", status_code=200)
 
 
 @router.get("/{identifier}")
@@ -33,7 +37,7 @@ async def http_download(identifier: str):
     try:
         duplex = Duplex.get(identifier)
     except KeyError:
-        return PlainTextResponse("File not found", status_code=404)
+        return PlainTextResponse("File not found.", status_code=404)
     
     print(f"{uid} - Notifying client is connected.")
     duplex.client_connected.set()
