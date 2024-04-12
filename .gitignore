@@ -5,3 +5,4 @@ static/*.css
 *.code-workspace
 conf/
 *.bak
+other/
