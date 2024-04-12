@@ -15,7 +15,7 @@ class Duplex:
 
     instances = weakref.WeakValueDictionary()
 
-    def __init__(self, identifier: str, file: File, stream=None):
+    def __init__(self, identifier: str, file: File):
         self.identifier = identifier
         self.file = file
         self.queue = asyncio.Queue(1)
