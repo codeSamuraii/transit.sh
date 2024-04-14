@@ -20,11 +20,11 @@ async def websocket_upload(websocket: WebSocket, identifier: str):
     except KeyError:
         print(f"{uid} - Invalid header: {header}")
         return
-    
+
     duplex = Duplex.create_duplex(uid, file)
 
     await duplex.client_connected.wait()
-    await websocket.send_text(f"Go for file chunks")
+    await websocket.send_text("Go for file chunks")
 
     print(f"{uid} - Starting upload...")
     await duplex.transfer(websocket.iter_bytes())
@@ -51,7 +51,7 @@ async def websocket_download(websocket: WebSocket, identifier: str):
     print(f"{uid} - Waiting for go-ahead...")
     while (msg := await websocket.receive_text()) != "Go for file chunks":
         print(f"{uid} - Unexpected message: {msg}")
-    
+
     print(f"{uid} - Notifying client is connected.")
     duplex.client_connected.set()
     await asyncio.sleep(0.5)

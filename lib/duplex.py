@@ -20,7 +20,7 @@ class Duplex:
         self.file = file
         self.queue = asyncio.Queue(1)
         self.client_connected = asyncio.Event()
-    
+
     @staticmethod
     def get_file_from_request(request: Request):
         file = File(
@@ -29,7 +29,7 @@ class Duplex:
             content_type=request.headers.get('content-type')
         )
         return file
-    
+
     @staticmethod
     def get_file_from_header(header: dict):
         file = File(
@@ -38,19 +38,9 @@ class Duplex:
             content_type=header['file_type']
         )
         return file
-    
-    def get_file_info(self):
-        return self.file.name, self.file.size, self.file.content_type
-    
+
     @classmethod
     def create_duplex(cls, identifier: str, file: File):
-        duplex = cls(identifier, file)
-        cls.instances[identifier] = duplex
-        return duplex
-    
-    @classmethod
-    def create_duplex_ws(cls, identifier: str, name: str, size: int, type: str):
-        file = File(name=name, size=size, content_type=type)
         duplex = cls(identifier, file)
         cls.instances[identifier] = duplex
         return duplex
@@ -61,7 +51,7 @@ class Duplex:
             return duplex
         else:
             raise KeyError(f"Duplex '{identifier}' not found.")
-    
+
     def get_file_info(self):
         return self.file.name, self.file.size, self.file.content_type
 
@@ -69,18 +59,18 @@ class Duplex:
         while not self.queue.empty() and seconds > 0:
             await asyncio.sleep(1)
             seconds -= 1
-    
+
     async def transfer(self, stream):
         bytes_read = 0
-    
+
         async for chunk in stream:
             bytes_read += len(chunk)
             await self.queue.put(chunk)
-    
+
         await self.queue.put(None)
         await self.wait_for_empty_queue()
         return bytes_read
-    
+
     async def receive(self):
         while True:
             chunk = await self.queue.get()
@@ -88,6 +78,6 @@ class Duplex:
                 yield chunk
             else:
                 break
-    
+
     def __del__(self):
         print(f"Deleting duplex '{self.identifier}'. {len(self.instances) - 1} duplexes remaining.")

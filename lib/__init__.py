@@ -1,1 +1,1 @@
-from .duplex import Duplex
+from .duplex import Duplex as Duplex

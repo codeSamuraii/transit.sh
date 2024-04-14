@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 
 from views import http_router, ws_router
 
+
 app = FastAPI()
 
 

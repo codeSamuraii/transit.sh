@@ -1,6 +1,6 @@
 import asyncio
 from fastapi import Request, APIRouter
-from fastapi.responses import Response, StreamingResponse, PlainTextResponse
+from fastapi.responses import StreamingResponse, PlainTextResponse
 
 from lib import Duplex
 
@@ -38,7 +38,7 @@ async def http_download(identifier: str):
         duplex = Duplex.get(identifier)
     except KeyError:
         return PlainTextResponse("File not found.", status_code=404)
-    
+
     print(f"{uid} - Notifying client is connected.")
     duplex.client_connected.set()
     await asyncio.sleep(0.5)
