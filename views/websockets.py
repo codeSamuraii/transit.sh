@@ -61,4 +61,3 @@ async def websocket_download(websocket: WebSocket, identifier: str):
         await websocket.send_bytes(chunk)
     await websocket.send_bytes(b'')
     print(f"{uid} - Download complete.")
-

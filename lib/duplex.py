@@ -49,8 +49,7 @@ class Duplex:
     def get(cls, identifier: str):
         if duplex := cls.instances.get(identifier):
             return duplex
-        else:
-            raise KeyError(f"Duplex '{identifier}' not found.")
+        raise KeyError(f"Duplex '{identifier}' not found.")
 
     def get_file_info(self):
         return self.file.name, self.file.size, self.file.content_type

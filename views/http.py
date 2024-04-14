@@ -10,7 +10,7 @@ router = APIRouter()
 @router.put("/{identifier}/{file_name}")
 async def http_upload(request: Request, identifier: str, file_name: str):
     uid = identifier
-    print(f"{uid} - HTTP upload request." )
+    print(f"{uid} - HTTP upload request: {file_name}" )
 
     file = Duplex.get_file_from_request(request)
 
