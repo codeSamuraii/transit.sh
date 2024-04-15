@@ -32,10 +32,12 @@ async def http_upload(request: Request, identifier: str, file_name: str):
 @router.get("/{identifier}")
 async def http_download(identifier: str):
     uid = identifier
-    print(f"{uid} - HTTP download request." )
+    if '.' in identifier or '/' in identifier:
+        return PlainTextResponse("Invalid request.", status_code=400)
 
     try:
         duplex = Duplex.get(identifier)
+        print(f"{uid} - HTTP download request." )
     except KeyError:
         return PlainTextResponse("File not found.", status_code=404)
 
