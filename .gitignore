@@ -1,4 +1,5 @@
 *.bin
+prompt.md
 Pipfile
 Pipfile.lock
 static/*.css
@@ -6,3 +7,4 @@ static/*.css
 conf/
 *.bak
 other/
+TransitApp/

@@ -1,5 +1,6 @@
 import asyncio
 from fastapi import Request, APIRouter
+from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse, PlainTextResponse
 
 from lib import Duplex
@@ -7,11 +8,22 @@ from lib import Duplex
 router = APIRouter()
 
 
-@router.put("/{identifier}/{file_name}")
-async def http_upload(request: Request, identifier: str, file_name: str):
-    uid = identifier
-    print(f"{uid} - HTTP upload request: {file_name}" )
+@router.put("/{identifier}")
+@router.put("/{identifier}/{filename}")
+async def http_upload(request: Request, identifier: str, filename: str = None):
+    """
+    Upload a file via HTTP PUT.
 
+    The filename can be provided in two ways:
+    - As a path parameter: `/{identifier}/{filename}` (automatically used by `curl --upload-file`)
+    - As a query parameter: `/{identifier}?filename={filename}`
+
+    File size is limited to 100 MiB for HTTP transfers.
+    """
+    if not filename:
+        raise HTTPException(status_code=400, detail="Filename is required as path parameter or query parameter")
+
+    print(f"{identifier} - HTTP upload request: {filename}" )
     file = Duplex.get_file_from_request(request)
 
     if file.size > 100*1024**2:
@@ -19,35 +31,40 @@ async def http_upload(request: Request, identifier: str, file_name: str):
 
     duplex = Duplex.create_duplex(identifier, file)
 
-    print(f"{uid} - Waiting for client to connect...")
+    print(f"{identifier} - Waiting for client to connect...")
     await duplex.client_connected.wait()
 
-    print(f"{uid} - Client connected. Uploading...")
+    print(f"{identifier} - Client connected. Uploading...")
     await duplex.transfer(request.stream())
 
-    print(f"{uid} - Upload complete.")
+    print(f"{identifier} - Upload complete.")
     return PlainTextResponse("Transfer complete.", status_code=200)
 
 
 @router.get("/{identifier}")
 async def http_download(identifier: str):
-    uid = identifier
+    """
+    Download a file via HTTP GET.
+
+    The identifier is used to identify the file to download.
+    File chunks are forwarded from sender to receiver via streaming.
+    """
     if '.' in identifier or '/' in identifier:
         return PlainTextResponse("Invalid request.", status_code=400)
 
     try:
         duplex = Duplex.get(identifier)
-        print(f"{uid} - HTTP download request." )
+        print(f"{identifier} - HTTP download request." )
     except KeyError:
         return PlainTextResponse("File not found.", status_code=404)
 
-    print(f"{uid} - Notifying client is connected.")
+    print(f"{identifier} - Notifying client is connected.")
     duplex.client_connected.set()
     await asyncio.sleep(0.5)
 
     file_name, file_size, file_type = duplex.get_file_info()
 
-    print(f"{uid} - Starting download.")
+    print(f"{identifier} - Starting download.")
     return StreamingResponse(
         duplex.receive(),
         media_type=file_type,
