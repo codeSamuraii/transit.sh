@@ -2,7 +2,7 @@ import asyncio
 import weakref
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
-from fastapi import Request, WebSocketDisconnect
+from fastapi import Request, WebSocketException
 
 
 @dataclass
@@ -22,7 +22,6 @@ class FileTransfer:
         self.queue = asyncio.Queue(1)
         self.client_connected = asyncio.Event()
         self.transfer_complete = asyncio.Event()
-        self.bytes_transferred = 0  # Track bytes actually transferred
 
     @staticmethod
     def get_file_from_request(request: Request):
@@ -59,34 +58,29 @@ class FileTransfer:
 
     async def transfer(self, stream: AsyncIterator[bytes]):
         try:
-            bytes_read = 0
             async for chunk in stream:
-                if not chunk:  # Empty chunk signals end of transfer
-                    print(f"{self.identifier} - Received empty chunk, ending upload.")
+                if not chunk:
+                    print(f"{self.identifier} (send) - Received empty chunk, ending upload.")
                     break
-
-                bytes_read += len(chunk)
                 await self.queue.put(chunk)
 
-        except WebSocketDisconnect:
-            print(f"{self.identifier} - Client disconnected during upload.")
+        except WebSocketException as e:
+            print(f"{self.identifier} (send) - Client disconnected during upload.")
 
         await self.queue.put(None)
         await self.transfer_complete.wait()
 
     async def receive(self):
-        bytes_sent = 0
         while True:
             chunk = await self.queue.get()
             if chunk is not None:
-                bytes_sent += len(chunk)
                 yield chunk
             else:
-                print(f"{self.identifier} - No more chunks to receive. Total sent: {bytes_sent}")
+                print(f"{self.identifier} (receive) - No more chunks to receive.")
                 break
-        self.bytes_transferred = bytes_sent
+
         self.transfer_complete.set()
-        print(f"{self.identifier} - Transfer complete, notifying all waiting tasks. Final bytes: {bytes_sent}")
+        print(f"{self.identifier} (receive) - Transfer complete, notified all waiting tasks.")
 
     def __del__(self):
         print(f"Deleting transfer '{self.identifier}'. {len(self.instances) - 1} transferes remaining.")
