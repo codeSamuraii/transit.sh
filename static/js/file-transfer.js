@@ -4,14 +4,15 @@ function initFileTransfer() {
     const elements = {
         dropArea: document.getElementById('drop-area'),
         fileInput: document.getElementById('file-input'),
-        transferIdInput: document.getElementById('transfer-id'),
+        // transferIdInput: document.getElementById('transfer-id'),
+        dlLinkInfo: document.getElementById('dl-link-info'),
         uploadProgress: document.getElementById('upload-progress'),
         progressBarFill: document.getElementById('progress-bar-fill'),
         progressText: document.getElementById('progress-text'),
         statusText: document.getElementById('status-text'),
         shareLink: document.getElementById('share-link'),
         shareUrl: document.getElementById('share-url'),
-        shareCommand: document.getElementById('share-command')
+        // shareCommand: document.getElementById('share-command')
     };
 
     setupEventListeners(elements);
@@ -76,12 +77,12 @@ function handleFiles(files, elements) {
 }
 
 // Transfer ID generation
-function generateTransferId(transferIdInput) {
-    if (!transferIdInput.value.trim()) {
-        const randomId = Math.random().toString(36).substring(2, 10);
-        transferIdInput.value = randomId;
-    }
-    return transferIdInput.value;
+function generateTransferId() {
+    // if (!transferIdInput.value.trim()) {
+    //     const randomId = Math.random().toString(36).substring(2, 10);
+    //     transferIdInput.value = randomId;
+    // }
+    return Math.random().toString(36).substring(2, 10);
 }
 
 // UI updates
@@ -99,28 +100,46 @@ function updateProgress(elements, progress) {
 }
 
 function displayShareLink(elements, transferId) {
-    const { shareUrl, shareCommand, shareLink } = elements;
+    const { shareUrl, shareLink, dlLinkInfo, dropArea } = elements;
     shareUrl.value = `https://transit.sh/${transferId}`;
-    shareCommand.textContent = `curl -JLO https://transit.sh/${transferId}`;
+    // shareCommand.textContent = `curl -JLO https://transit.sh/${transferId}`;
     shareLink.style.display = 'block';
+    dlLinkInfo.hidden = true;
+    dropArea.hidden = true;
 }
 
-// File upload with WebSockets
+/**
+ * Uploads a file via WebSocket connection
+ * @param {File} file - The file to be uploaded
+ * @param {Object} elements - DOM elements used in the upload process
+ * @param {HTMLInputElement} elements.transferIdInput - Input element for the transfer ID
+ * @param {HTMLElement} elements.statusText - Element to display status messages
+ */
 function uploadFile(file, elements) {
-    const { transferIdInput, statusText } = elements;
-    const transferId = generateTransferId(transferIdInput);
+    const { statusText } = elements;
+    const transferId = generateTransferId();
     const ws = new WebSocket(`ws://localhost:8080/send/${transferId}`);
+    let abortController = new AbortController();
 
     showProgress(elements);
 
     // WebSocket event handlers
-    ws.onopen = () => handleWsOpen(ws, file, transferId, elements);
-    ws.onmessage = (event) => handleWsMessage(event, ws, file, elements);
-    ws.onerror = (error) => handleWsError(error, statusText);
-    ws.onclose = () => console.log('WebSocket connection closed');
+    ws.onopen = () => handleWsOpen(ws, file, transferId, elements, abortController);
+    ws.onmessage = (event) => handleWsMessage(event, ws, file, elements, abortController);
+    ws.onerror = (error) => {
+        handleWsError(error, statusText);
+        cleanupTransfer(abortController);
+    };
+    ws.onclose = () => {
+        console.log('WebSocket connection closed');
+        cleanupTransfer(abortController);
+    };
+
+    // Ensure cleanup on page unload
+    window.addEventListener('beforeunload', () => cleanupTransfer(abortController), { once: true });
 }
 
-function handleWsOpen(ws, file, transferId, elements) {
+function handleWsOpen(ws, file, transferId, elements, abortController) {
     const { statusText } = elements;
     // Send file metadata
     const metadata = {
@@ -130,86 +149,126 @@ function handleWsOpen(ws, file, transferId, elements) {
     };
 
     ws.send(JSON.stringify(metadata));
-    statusText.textContent = 'Waiting for peer to connect...';
+    statusText.textContent = 'Waiting for the receiver to start the download...';
     displayShareLink(elements, transferId);
 }
 
-function handleWsMessage(event, ws, file, elements) {
+function handleWsMessage(event, ws, file, elements, abortController) {
     if (event.data === 'Go for file chunks') {
         const { statusText } = elements;
-        statusText.textContent = 'Peer connected. Uploading file...';
-        sendFileInChunks(ws, file, elements);
+        statusText.textContent = 'Peer connected. Transferring file...';
+        sendFileInChunks(ws, file, elements, abortController);
     } else {
         console.log('Unexpected message:', event.data);
     }
 }
 
 function handleWsError(error, statusText) {
-    statusText.textContent = 'Error: ' + error.message;
+    statusText.textContent = 'Error: ' + (error.message || 'Connection failed');
     console.error('WebSocket Error:', error);
 }
 
-function sendFileInChunks(ws, file, elements) {
+function cleanupTransfer(abortController) {
+    if (abortController) {
+        abortController.abort();
+        abortController = null;
+    }
+}
+
+async function sendFileInChunks(ws, file, elements, abortController) {
     const { statusText } = elements;
     const chunkSize = 32768; // 32KB chunks
     let offset = 0;
     const reader = new FileReader();
 
-    function processNextChunk() {
-        // Check if we're done
-        if (offset >= file.size) {
+    // Use a signal to abort operations
+    const signal = abortController.signal;
+
+    // Check if operation was aborted
+    if (signal.aborted) return;
+
+    try {
+        // Process chunks with backpressure handling
+        while (offset < file.size && !signal.aborted) {
+            // Wait until WebSocket buffer has room
+            await waitForWebSocketBuffer(ws);
+
+            if (signal.aborted) break;
+
+            const end = Math.min(offset + chunkSize, file.size);
+            const slice = file.slice(offset, end);
+
+            // Read and send chunk
+            const chunk = await readChunkAsArrayBuffer(reader, slice, signal);
+            if (signal.aborted || !chunk) break;
+
+            ws.send(chunk);
+            offset += chunk.byteLength;
+
+            // Update progress
+            updateProgress(elements, offset / file.size);
+        }
+
+        // If we completed successfully (not aborted), finalize the transfer
+        if (!signal.aborted && offset >= file.size) {
             finalizeTransfer(ws, statusText);
-            return;
         }
-
-        // Check if websocket is ready to send more data
-        if (ws.bufferedAmount > 1024 * 1024) {  // 1MB threshold
-            setTimeout(processNextChunk, 100);
-            return;
+    } catch (error) {
+        if (!signal.aborted) {
+            statusText.textContent = `Error: ${error.message || 'Upload failed'}`;
+            console.error('Upload error:', error);
+            ws.close();
         }
+    } finally {
+        // Cleanup
+        reader.onload = null;
+        reader.onerror = null;
+    }
+}
 
-        const end = Math.min(offset + chunkSize, file.size);
-        const slice = file.slice(offset, end);
-
-        reader.onload = (e) => {
-            if (e.target.result.byteLength > 0) {
-                try {
-                    ws.send(e.target.result);
-                    offset += e.target.result.byteLength;
-
-                    // Update progress
-                    updateProgress(elements, offset / file.size);
-
-                    // Schedule the next chunk processing
-                    setTimeout(processNextChunk, 0);
-                } catch (error) {
-                    statusText.textContent = `Error: ${error.message}`;
-                    console.error('Error sending chunk:', error);
-                }
+// Promise-based wait for WebSocket buffer to clear
+function waitForWebSocketBuffer(ws) {
+    return new Promise(resolve => {
+        const checkBuffer = () => {
+            // Only proceed when buffer is below threshold
+            if (ws.bufferedAmount < 512 * 1024) { // 512KB threshold
+                resolve();
+            } else {
+                setTimeout(checkBuffer, 50);
             }
         };
+        checkBuffer();
+    });
+}
 
-        reader.onerror = (error) => {
-            statusText.textContent = `Error reading file: ${error}`;
-            console.error('FileReader error:', error);
-        };
+// Promise-based file chunk reading
+function readChunkAsArrayBuffer(reader, blob, signal) {
+    return new Promise((resolve, reject) => {
+        if (signal.aborted) {
+            resolve(null);
+            return;
+        }
 
-        // Start reading this chunk
-        reader.readAsArrayBuffer(slice);
-    }
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = e => reject(new Error('Error reading file'));
 
-    // Start the upload process
-    processNextChunk();
+        // Add abort handling
+        signal.addEventListener('abort', () => {
+            reader.abort();
+            resolve(null);
+        }, { once: true });
+
+        reader.readAsArrayBuffer(blob);
+    });
 }
 
 function finalizeTransfer(ws, statusText) {
     // Send empty chunk to signal end of transfer
     ws.send(new ArrayBuffer(0));
 
-    // Wait a moment to ensure the empty buffer is sent
+    // Close the connection after a small delay to ensure the empty buffer is sent
     setTimeout(() => {
-        // Close the connection explicitly
+        statusText.textContent = 'Transfer complete!';
         ws.close();
-        statusText.textContent = 'Upload complete!';
-    }, 100);
+    }, 500);
 }

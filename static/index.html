@@ -8,7 +8,7 @@
         <title>Transit.sh</title>
         <meta property="og:title" content="Transit.sh">
         <meta property="og:site_name" content="Transit.sh">
-        <link rel="stylesheet" href="/css/style.css">
+        <link rel="stylesheet" href="/static/style.css">
         <link rel="icon" href="data:;base64,iVBORw0KGgo=">
         <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
         <style>
@@ -19,11 +19,11 @@
                 text-align: center;
                 margin: 20px 0;
                 cursor: pointer;
-                background-color: #f9f9f9;
+                background-color: #1b1a1a;
                 transition: all 0.3s;
             }
             .drop-area.highlight {
-                border-color: #666;
+                border-color: #1b1a1a;
                 background-color: #eee;
             }
             .upload-progress {
@@ -47,7 +47,7 @@
                 display: none;
                 margin-top: 20px;
                 padding: 15px;
-                background-color: #f0f8ff;
+                background-color: #1b1a1a;
                 border: 1px solid #add8e6;
                 border-radius: 5px;
             }
@@ -70,9 +70,36 @@
             </div>
             <div class="wrapper post__entry">
                 <p>Direct file transfer with your terminal. No subscription, no storage, no additional tool needed.</p>
-                <p>You can use <code>curl</code> (with limitations) or my <code>python</code> one-liner.</p>
-                <h3 id="curl">Using cURL</h3>
-                <p><code>curl</code> is available on most systems but is not suited for large files. <br>Because of this service's provider HTTP transfers have limitations. <b>100MiB maximum.</b></p>
+
+                <h3 id="browser-upload">Send a file</h3>
+                <p>This form lets you transfer a file from your browser.</p>
+
+                <div class="transfer-container">
+                    <!-- <input type="text" id="transfer-id" placeholder="Enter a transfer ID (or leave empty for random ID)"> -->
+                    <div id="drop-area" class="drop-area">
+                        <p>Drag and drop your file here, or click to select a file</p>
+                        <input type="file" id="file-input" style="display: none;">
+                    </div>
+                    <p id="dl-link-info">A download link will be provided once a file is selected.</p>
+                    <div id="share-link" class="share-link">
+                        <p>Donwload link:</p>
+                        <input type="text" id="share-url" readonly>
+                    </div>
+
+                    <div id="upload-progress" class="upload-progress">
+                        <p id="status-text"></p>
+                        <p></p>
+                        <div style="display: flex; align-items: center;">
+                            <p id="progress-text" style="margin-right: 10px; min-width: 40px; margin-top: 0; margin-bottom: 0; display: flex; align-items: center; height: 20px;">0%</p>
+                            <div class="progress-bar" style="flex-grow: 1; margin-bottom: 0;">
+                                <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 id="curl">Send using cURL</h3>
+                <p><code>curl</code> is available on most systems but is not suited for large files. <br>Because of this service's provider, HTTP transfers have limitations. <b>100MiB maximum.</b></p>
                 <pre><b># Send</b>
 curl -T <var>&lt;file&gt;</var> https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
                 <pre><b># Receive</b>
@@ -81,36 +108,12 @@ curl -JLO https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</co
 curl -T <var>/music/song.mp3</var> https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/
 curl -JLO https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/</pre>
 
-                <h3 id="browser-upload">Using Your Browser</h3>
-                <p>You can also upload a file directly from this page using drag and drop:</p>
 
-                <div class="transfer-container">
-                    <input type="text" id="transfer-id" placeholder="Enter a transfer ID (or leave empty for random ID)">
-                    <div id="drop-area" class="drop-area">
-                        <p>Drag and drop your file here, or click to select a file</p>
-                        <input type="file" id="file-input" style="display: none;">
-                    </div>
-
-                    <div id="upload-progress" class="upload-progress">
-                        <div class="progress-bar">
-                            <div id="progress-bar-fill" class="progress-bar-fill"></div>
-                        </div>
-                        <p id="progress-text">0%</p>
-                        <p id="status-text"></p>
-                    </div>
-
-                    <div id="share-link" class="share-link">
-                        <p>Share this link to download the file:</p>
-                        <input type="text" id="share-url" readonly>
-                        <p>Or use this command:</p>
-                        <pre id="share-command"></pre>
-                    </div>
-                </div>
 
                 <h2 id="information">Information</h3>
                 <ul>
                     <li>You can use one method to upload and the other the download. For example, you can upload with the form and download using cURL.</li>
-                    <li>While the API allows to transfer large files instantly, my hosting provider introduces delays and limitations for HTTP transfers.<br>If <code>curl</code> behaves unexpectedly, use the form for websockets transfers that aren't limited.</li>
+                    <li>While the API allows to transfer large files instantly, my hosting provider introduces delays and limitations for HTTP transfers.<br>If <code>curl</code> behaves unexpectedly, use the form. It relies on websockets that aren't limited.</li>
                     <li>Files are not stored by the service at any point and only exist in memory one chunk at a time.</li>
                     <li>This service is hosted as a proof-of-concept for my <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> with no guarantees.</li>
                 </ul>
