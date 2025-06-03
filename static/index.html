@@ -11,6 +11,53 @@
         <link rel="stylesheet" href="/css/style.css">
         <link rel="icon" href="data:;base64,iVBORw0KGgo=">
         <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
+        <style>
+            .drop-area {
+                border: 2px dashed #ccc;
+                border-radius: 8px;
+                padding: 20px;
+                text-align: center;
+                margin: 20px 0;
+                cursor: pointer;
+                background-color: #f9f9f9;
+                transition: all 0.3s;
+            }
+            .drop-area.highlight {
+                border-color: #666;
+                background-color: #eee;
+            }
+            .upload-progress {
+                display: none;
+                margin-top: 10px;
+            }
+            .progress-bar {
+                height: 20px;
+                background-color: #e0e0e0;
+                border-radius: 5px;
+                margin-bottom: 10px;
+                overflow: hidden;
+            }
+            .progress-bar-fill {
+                height: 100%;
+                background-color: #4CAF50;
+                width: 0%;
+                transition: width 0.3s;
+            }
+            .share-link {
+                display: none;
+                margin-top: 20px;
+                padding: 15px;
+                background-color: #f0f8ff;
+                border: 1px solid #add8e6;
+                border-radius: 5px;
+            }
+            .share-link input {
+                width: 100%;
+                padding: 8px;
+                margin: 5px 0;
+                box-sizing: border-box;
+            }
+        </style>
     </head>
     <body>
         <main>
@@ -33,26 +80,44 @@ curl -JLO https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</co
                 <pre><b># Example</b>
 curl -T <var>/music/song.mp3</var> https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/
 curl -JLO https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/</pre>
-                <h3 id="python">Using Python</h3>
-                <p>This <code>python</code> one-liner uses websockets and doesn't have any limitations.<br>The script will install the <a href="https://pypi.org/project/websockets/">websockets</a> package then ask for your file and identifier.<br>Just paste the following in your terminal:</p>
-<pre>
-<b># Send</b>
-python -c 'exec("""\nimport subprocess\nsubprocess.run(["pip", "install", "-q", "websockets"], check=False)\n\nimport json\nimport asyncio\nimport mimetypes\nimport websockets\nfrom pathlib import Path\n\ndef ask_for_path():\n    while True:\n        path = Path(input("\\nFile path (you can drag-and-drop): ")).resolve()\n        if path.exists() and path.is_file():\n            break\n        print(f"{path} is not a valid file.")\n    return path\n\ndef ask_for_identifier():\n    while True:\n        identifier = input("Transfer ID: ")\n        if identifier:\n            return identifier\n\nasync def send():\n    file_path = ask_for_path()\n    identifier = ask_for_identifier()\n\n    async with websockets.connect(f"wss://transit.sh/send/{identifier}") as websocket:\n        file = Path(file_path).resolve()\n        file_name, file_size, file_type = file.name, file.stat().st_size, mimetypes.guess_type(file.name, strict=False)[0]\n        header = json.dumps({"file_name": file_name, "file_size": file_size, "file_type": file_type})\n        await websocket.send(header)\n\n        print("Waiting for other peer to connect...")\n        while (msg := await websocket.recv()) != "Go for file chunks":\n            print(f"Unexpected message: {msg}")\n    \n        print("Peer connected. Starting transfer.")\n        with file.open("rb") as fd:\n            bytes_read = 0\n            while chunk := fd.read(2**15):\n                await websocket.send(chunk)\n                bytes_read += len(chunk)\n                print(f"Transfering... {bytes_read/file_size*100:.2f}%", end="\\r", flush=True)\n        await websocket.send(str().encode())\n        print("\\nDone.")\n\nasyncio.run(send())\n""")'
-</pre>
-<pre>
-<b># Receive</b>
-python -c 'exec("""\nimport subprocess\nsubprocess.run(["pip", "install", "-q", "websockets"], check=False)\n\nimport json\nimport asyncio\nfrom pathlib import Path\nfrom websockets import connect\n\ndef ask_for_path():\n    while True:\n        path = Path(input("\\nDest. directory: ")).resolve()\n        if path.exists() and path.is_dir():\n            break\n        print(f"{path} is not a valid directory.")\n    return path\n\ndef ask_for_identifier():\n    while True:\n        identifier = input("Transfer ID: ")\n        if identifier:\n            return identifier\n\nasync def receive():\n    path = ask_for_path()\n    identifier = ask_for_identifier()\n\n    async with connect(f"wss://transit.sh/receive/{identifier}") as websocket:\n        response = await websocket.recv()\n        if response == "File not found":\n            print(f"No transfer with ID {identifier} found.")\n            return\n\n        header = json.loads(response)\n        file_name, file_size, file_type = header["file_name"], header["file_size"], header["file_type"]\n        print(f"File: {file_name} - Size: {file_size / 1024**2:.2f}MB\\nSaving to: {path / file_name}")\n\n        with open(path / file_name, "wb") as fd:\n            await websocket.send("Go for file chunks")\n            bytes_received = 0\n            while (chunk := await websocket.recv()) != b"":\n                fd.write(chunk)\n                bytes_received += len(chunk)\n                print(f"Receiving... {bytes_received/file_size*100:.2f}%", end="\\r", flush=True)\n\n        print("\\nTransfer complete.")\n\nasyncio.run(receive())\n""")'
-</pre>
-                <p>The received file will be saved in the same directory the script was executed.</p>
+
+                <h3 id="browser-upload">Using Your Browser</h3>
+                <p>You can also upload a file directly from this page using drag and drop:</p>
+
+                <div class="transfer-container">
+                    <input type="text" id="transfer-id" placeholder="Enter a transfer ID (or leave empty for random ID)">
+                    <div id="drop-area" class="drop-area">
+                        <p>Drag and drop your file here, or click to select a file</p>
+                        <input type="file" id="file-input" style="display: none;">
+                    </div>
+
+                    <div id="upload-progress" class="upload-progress">
+                        <div class="progress-bar">
+                            <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                        </div>
+                        <p id="progress-text">0%</p>
+                        <p id="status-text"></p>
+                    </div>
+
+                    <div id="share-link" class="share-link">
+                        <p>Share this link to download the file:</p>
+                        <input type="text" id="share-url" readonly>
+                        <p>Or use this command:</p>
+                        <pre id="share-command"></pre>
+                    </div>
+                </div>
+
                 <h2 id="information">Information</h3>
                 <ul>
-                    <li>You can use one method to upload and the other the download. For example, you can upload with websockets and download using your browser.</li>
-                    <li>While the API allows to transfer large files instantly, my hosting provider introduces delays and limitations for HTTP transfers.<br>If <code>curl</code> behaves unexpectedly, use the <code>python</code> one-liner for websockets that aren't limited.</li>
+                    <li>You can use one method to upload and the other the download. For example, you can upload with the form and download using cURL.</li>
+                    <li>While the API allows to transfer large files instantly, my hosting provider introduces delays and limitations for HTTP transfers.<br>If <code>curl</code> behaves unexpectedly, use the form for websockets transfers that aren't limited.</li>
                     <li>Files are not stored by the service at any point and only exist in memory one chunk at a time.</li>
                     <li>This service is hosted as a proof-of-concept for my <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> with no guarantees.</li>
                 </ul>
             </div>
         </main>
         <footer class="footer"><div class="footer__copyright">Free for non-commercial applications.<br><a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">© codesamuraii</a></div></footer>
+
+        <script src="/static/js/file-transfer.js"></script>
     </body>
 </html>

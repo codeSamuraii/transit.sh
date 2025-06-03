@@ -1,1 +1,1 @@
-from .duplex import Duplex
+from .transfer import FileTransfer
