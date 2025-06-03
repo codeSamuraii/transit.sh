@@ -4,15 +4,12 @@ function initFileTransfer() {
     const elements = {
         dropArea: document.getElementById('drop-area'),
         fileInput: document.getElementById('file-input'),
-        // transferIdInput: document.getElementById('transfer-id'),
-        dlLinkInfo: document.getElementById('dl-link-info'),
         uploadProgress: document.getElementById('upload-progress'),
         progressBarFill: document.getElementById('progress-bar-fill'),
         progressText: document.getElementById('progress-text'),
         statusText: document.getElementById('status-text'),
         shareLink: document.getElementById('share-link'),
         shareUrl: document.getElementById('share-url'),
-        // shareCommand: document.getElementById('share-command')
     };
 
     setupEventListeners(elements);
@@ -78,10 +75,6 @@ function handleFiles(files, elements) {
 
 // Transfer ID generation
 function generateTransferId() {
-    // if (!transferIdInput.value.trim()) {
-    //     const randomId = Math.random().toString(36).substring(2, 10);
-    //     transferIdInput.value = randomId;
-    // }
     return Math.random().toString(36).substring(2, 10);
 }
 
@@ -97,15 +90,24 @@ function updateProgress(elements, progress) {
     const percentage = Math.min(100, Math.round(progress * 100));
     progressBarFill.style.width = `${percentage}%`;
     progressText.textContent = `${percentage}%`;
+
+    // Update status for better user feedback
+    if (percentage === 100) {
+        elements.statusText.textContent = 'Processing upload...';
+    }
 }
 
 function displayShareLink(elements, transferId) {
-    const { shareUrl, shareLink, dlLinkInfo, dropArea } = elements;
+    const { shareUrl, shareLink, dropArea } = elements;
     shareUrl.value = `https://transit.sh/${transferId}`;
-    // shareCommand.textContent = `curl -JLO https://transit.sh/${transferId}`;
-    shareLink.style.display = 'block';
-    dlLinkInfo.hidden = true;
-    dropArea.hidden = true;
+    shareLink.style.display = 'flex'; // Changed from 'block' to 'flex'
+    dropArea.style.display = 'none'; // Changed from 'hidden = true' to 'display = none'
+
+    // Focus and select the share URL for easy copying
+    setTimeout(() => {
+        shareUrl.focus();
+        shareUrl.select();
+    }, 300);
 }
 
 /**
@@ -165,6 +167,7 @@ function handleWsMessage(event, ws, file, elements, abortController) {
 
 function handleWsError(error, statusText) {
     statusText.textContent = 'Error: ' + (error.message || 'Connection failed');
+    statusText.style.color = 'var(--error-color)';
     console.error('WebSocket Error:', error);
 }
 
@@ -268,7 +271,7 @@ function finalizeTransfer(ws, statusText) {
 
     // Close the connection after a small delay to ensure the empty buffer is sent
     setTimeout(() => {
-        statusText.textContent = 'Transfer complete!';
+        statusText.textContent = '✓ Transfer complete!';
         ws.close();
     }, 500);
 }

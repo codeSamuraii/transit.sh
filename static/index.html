@@ -1,42 +1,47 @@
 <!DOCTYPE html>
-<html lang="en-gb">
-    <head>
-        <meta charset="utf-8">
-        <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-        <meta name="google-site-verification" content="0K6yH038RLZASesYHxfGaKBUtPzRx4f_3CzciQxYt7U" />
-        <title>Transit.sh</title>
-        <meta property="og:title" content="Transit.sh">
-        <meta property="og:site_name" content="Transit.sh">
-        <link rel="stylesheet" href="/static/style.css">
-        <link rel="icon" href="data:;base64,iVBORw0KGgo=">
-        <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
-    </head>
-    <body>
-        <main>
-            <div class="hero">
-                <header class="hero__content">
-                    <div class="wrapper">
-                        <h1>Transit.sh</h1>
-                    </div>
-                </header>
-            </div>
-            <div class="wrapper post__entry">
-                <p>Direct file transfer with your terminal. No subscription, no storage, no additional tool needed.</p>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="google-site-verification" content="0K6yH038RLZASesYHxfGaKBUtPzRx4f_3CzciQxYt7U" />
+    <title>Transit.sh - Secure Direct File Transfer</title>
+    <meta name="description" content="Transfer files directly without storage or subscriptions. Fast, secure peer-to-peer file sharing through your browser or terminal.">
+    <meta property="og:title" content="Transit.sh - Secure Direct File Transfer">
+    <meta property="og:site_name" content="Transit.sh">
+    <meta property="og:description" content="Transfer files directly without storage or subscriptions. Fast, secure peer-to-peer file sharing through your browser or terminal.">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+    <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
+</head>
+<body>
+    <main class="site-container">
+        <div class="hero">
+            <header class="hero__content">
+                <div class="wrapper">
+                    <h1>Transit.sh</h1>
+                    <p>Direct file transfer with no intermediary storage</p>
+                </div>
+            </header>
+        </div>
 
+        <div class="wrapper post__entry">
+            <section>
                 <h3 id="browser-upload">Send a file</h3>
-                <p>This form lets you transfer a file from your browser.</p>
+                <p>Drag and drop or select a file to generate a download link.</p>
+                <p></p>
 
                 <div class="transfer-container">
-                    <!-- <input type="text" id="transfer-id" placeholder="Enter a transfer ID (or leave empty for random ID)"> -->
-                    <div id="drop-area" class="drop-area">
-                        <p>Drag and drop your file here, or click to select a file</p>
-                        <input type="file" id="file-input" style="display: none;">
-                    </div>
-                    <p id="dl-link-info">A download link will be provided once a file is selected.</p>
-                    <div id="share-link" class="share-link">
-                        <p>Donwload link:</p>
-                        <input type="text" id="share-url" readonly>
+                    <div class="transfer-box">
+                        <div id="drop-area" class="drop-area">
+                            <p>Drag and drop your file here, or click to select a file</p>
+                            <input type="file" id="file-input" style="display: none;">
+                        </div>
+
+                        <div id="share-link" class="share-link" style="display: none;">
+                            <label for="share-url" style="margin: 0 10px 0 0; white-space: nowrap;">Download link:</label>
+                            <input type="text" id="share-url" readonly>
+                        </div>
                     </div>
 
                     <div id="upload-progress" class="upload-progress">
@@ -50,30 +55,42 @@
                         </div>
                     </div>
                 </div>
-
+            </section>
+            <section><p></p><p></p></section>
+            <section>
                 <h3 id="curl">Send using cURL</h3>
-                <p><code>curl</code> is available on most systems but is not suited for large files. <br>Because of this service's provider, HTTP transfers have limitations. <b>100MiB maximum.</b></p>
+                <p>Use <code>curl</code> from your terminal for quick transfers. <b>100MiB maximum</b> for HTTP transfers.</p>
+
                 <pre><b># Send</b>
-curl -T <var>&lt;file&gt;</var> https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
+curl -T <var>&lt;file&gt;</var> https://transit.sh/<code>&lt;your-chosen-id&gt;</code>/</pre>
+
                 <pre><b># Receive</b>
-curl -JLO https://transit.sh/<code style="color:#fbfbaa">&lt;some-string&gt;</code>/</pre>
+curl -JLO https://transit.sh/<code>&lt;your-chosen-id&gt;</code>/</pre>
+
                 <pre><b># Example</b>
-curl -T <var>/music/song.mp3</var> https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/
-curl -JLO https://transit.sh/<code style="color:#fbfbaa">music-for-dad</code>/</pre>
+curl -T <var>/music/song.mp3</var> https://transit.sh/<code>music-for-dad</code>/
+curl -JLO https://transit.sh/<code>music-for-dad</code>/</pre>
+            </section>
 
-
-
-                <h2 id="information">Information</h3>
+            <section>
+                <h3 id="information">Important Information</h3>
                 <ul>
-                    <li>You can use one method to upload and the other the download. For example, you can upload with the form and download using cURL.</li>
-                    <li>While the API allows to transfer large files instantly, my hosting provider introduces delays and limitations for HTTP transfers.<br>If <code>curl</code> behaves unexpectedly, use the form. It relies on websockets that aren't limited.</li>
-                    <li>Files are not stored by the service at any point and only exist in memory one chunk at a time.</li>
-                    <li>This service is hosted as a proof-of-concept for my <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> with no guarantees.</li>
+                    <li>Files are <strong>not stored</strong> by the service at any point and only exist in memory one chunk at a time.</li>
+                    <li>You can use one method to upload and another to download (e.g., upload via browser, download via cURL).</li>
+                    <li>For large files, the browser upload method using WebSockets is recommended as HTTP transfers may have limitations.</li>
+                    <li>This service is hosted as a proof-of-concept with no guarantees. See the <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> for more details.</li>
                 </ul>
-            </div>
-        </main>
-        <footer class="footer"><div class="footer__copyright">Free for non-commercial applications.<br><a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">© codesamuraii</a></div></footer>
+            </section>
+        </div>
+    </main>
 
-        <script src="/static/js/file-transfer.js"></script>
-    </body>
+    <footer class="footer">
+        <div class="footer__copyright">
+            Free for non-commercial applications.<br>
+            <a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">© codesamuraii</a>
+        </div>
+    </footer>
+
+    <script src="/static/js/file-transfer.js"></script>
+</body>
 </html>
