@@ -221,7 +221,7 @@ async function sendFileInChunks(ws, file, elements, abortController) {
 function waitForWebSocketBuffer(ws) {
     return new Promise(resolve => {
         const checkBuffer = () => {
-            if (ws.bufferedAmount < 512 * 1024) { // 512KB threshold
+            if (ws.bufferedAmount < 1024 * 1024) { // 512KB threshold
                 resolve();
             } else {
                 setTimeout(checkBuffer, 50);
