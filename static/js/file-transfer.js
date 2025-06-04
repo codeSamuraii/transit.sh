@@ -99,7 +99,7 @@ function updateProgress(elements, progress) {
 
 function displayShareLink(elements, transferId) {
     const { shareUrl, shareLink, dropArea } = elements;
-    shareUrl.value = `https://transit.sh/${transferId}`;
+    shareUrl.value = `http://localhost:8080/${transferId}`;
     shareLink.style.display = 'flex';
     dropArea.style.display = 'none';
 
@@ -118,7 +118,7 @@ function displayShareLink(elements, transferId) {
 function uploadFile(file, elements) {
     const { statusText } = elements;
     const transferId = generateTransferId();
-    const ws = new WebSocket(`wss://transit.sh/send/${transferId}`);
+    const ws = new WebSocket(`ws://localhost:8080/send/${transferId}`);
     let abortController = new AbortController();
 
     showProgress(elements);
