@@ -26,7 +26,7 @@ class FileTransfer:
     @staticmethod
     def get_file_from_request(request: Request):
         file = File(
-            name=request.path_params.get('file_name'),
+            name=request.path_params.get('filename'),
             size=int(request.headers.get('content-length') or 1),
             content_type=request.headers.get('content-type')
         )
@@ -35,7 +35,7 @@ class FileTransfer:
     @staticmethod
     def get_file_from_header(header: dict):
         file = File(
-            name=header['file_name'].encode('latin-1', errors='replace').decode('latin-1'),
+            name=header['file_name'].encode('ascii', 'ignore').decode('utf-8'),
             size=int(header['file_size']),
             content_type=header['file_type']
         )

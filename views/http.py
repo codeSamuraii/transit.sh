@@ -64,7 +64,7 @@ async def http_download(uid: str):
 
     file_name, file_size, file_type = transfer.get_file_info()
 
-    print(f"⇓ {uid} ⇓ - Starting download.")
+    print(f"⇓ {uid} ⇓ - Starting download of {file_name} ({file_size} bytes, type: {file_type})")
     return StreamingResponse(
         transfer.receive(),
         media_type=file_type,
