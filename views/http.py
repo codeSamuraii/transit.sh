@@ -10,7 +10,7 @@ router = APIRouter()
 
 @router.put("/{identifier}")
 @router.put("/{identifier}/{filename}")
-async def http_upload(request: Request, identifier: str, filename: str = None):
+async def http_upload(request: Request, identifier: str, filename: str | None = None):
     """
     Upload a file via HTTP PUT.
 
@@ -23,7 +23,7 @@ async def http_upload(request: Request, identifier: str, filename: str = None):
     if not filename:
         raise HTTPException(status_code=400, detail="Filename is required as path parameter or query parameter")
 
-    print(f"{identifier} - HTTP upload request: {filename}" )
+    print(f"⇑ {identifier} - HTTP upload request: {filename}" )
     file = FileTransfer.get_file_from_request(request)
 
     if file.size > 100*1024**2:
@@ -31,13 +31,13 @@ async def http_upload(request: Request, identifier: str, filename: str = None):
 
     transfer = FileTransfer.create_transfer(identifier, file)
 
-    print(f"{identifier} - Waiting for client to connect...")
+    print(f"⇑ {identifier} - Waiting for client to connect...")
     await transfer.client_connected.wait()
 
-    print(f"{identifier} - Client connected. Uploading...")
+    print(f"⇑ {identifier} - Client connected. Uploading...")
     await transfer.transfer(request.stream())
 
-    print(f"{identifier} - Upload complete.")
+    print(f"⇑ {identifier} - Upload complete.")
     return PlainTextResponse("Transfer complete.", status_code=200)
 
 
@@ -54,17 +54,17 @@ async def http_download(identifier: str):
 
     try:
         transfer = FileTransfer.get(identifier)
-        print(f"{identifier} - HTTP download request." )
+        print(f"⇓ {identifier} - HTTP download request." )
     except KeyError:
         return PlainTextResponse("File not found.", status_code=404)
 
-    print(f"{identifier} - Notifying client is connected.")
+    print(f"⇓ {identifier} - Notifying client is connected.")
     transfer.client_connected.set()
     await asyncio.sleep(0.5)
 
     file_name, file_size, file_type = transfer.get_file_info()
 
-    print(f"{identifier} - Starting download.")
+    print(f"⇓ {identifier} - Starting download.")
     return StreamingResponse(
         transfer.receive(),
         media_type=file_type,
