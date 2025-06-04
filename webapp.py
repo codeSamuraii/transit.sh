@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from views import http_router, ws_router
 
 
-app = FastAPI()
+app = FastAPI(websocket_max_size=1024*1024*10)
 
 
 @app.get('/')
