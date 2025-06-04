@@ -6,7 +6,6 @@ from lib import FileTransfer
 
 router = APIRouter()
 
-
 @router.websocket("/send/{uid}")
 async def websocket_upload(websocket: WebSocket, uid: str):
     """
