@@ -2,94 +2,90 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="google-site-verification" content="0K6yH038RLZASesYHxfGaKBUtPzRx4f_3CzciQxYt7U" />
-    <title>Transit.sh - Secure Direct File Transfer</title>
-    <meta name="description" content="Transfer files directly without storage or subscriptions. Fast, secure peer-to-peer file sharing through your browser or terminal.">
-    <meta property="og:title" content="Transit.sh - Secure Direct File Transfer">
+    <title>Transit.sh</title>
+    <meta name="description" content="Direct file transfer with no intermediary storage">
+    <meta property="og:title" content="Transit.sh">
     <meta property="og:site_name" content="Transit.sh">
-    <meta property="og:description" content="Transfer files directly without storage or subscriptions. Fast, secure peer-to-peer file sharing through your browser or terminal.">
+    <meta property="og:description" content="Direct file transfer with no intermediary storage">
     <link rel="stylesheet" href="/static/style.css">
-    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
-    <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
 </head>
 <body>
-    <main class="site-container">
-        <div class="hero">
-            <header class="hero__content">
-                <div class="wrapper">
-                    <h1>Transit.sh</h1>
-                    <p>Direct file transfer with no intermediary storage</p>
-                </div>
-            </header>
-        </div>
+    <div class="container">
+        <header class="header">
+            <h1>Transit.sh</h1>
+            <p>Direct file transfer with no intermediary storage</p>
+        </header>
 
-        <div class="wrapper post__entry">
-            <section>
-                <h3 id="browser-upload">Send a file</h3>
+        <main>
+            <section class="section">
+                <h2>Send a file</h2>
                 <p>Drag and drop or select a file to generate a download link.</p>
-                <p></p>
 
                 <div class="transfer-container">
-                    <div class="transfer-box">
-                        <div id="drop-area" class="drop-area">
-                            <p>Drag and drop your file here, or click to select a file</p>
-                            <input type="file" id="file-input" style="display: none;">
-                        </div>
-
-                        <div id="share-link" class="share-link" style="display: none;">
-                            <label for="share-url" style="margin: 0 10px 0 0; white-space: nowrap;">Download link:</label>
-                            <input type="text" id="share-url" readonly>
-                        </div>
+                    <div id="drop-area" class="drop-area">
+                        <p>Drag and drop your file here, or click to select a file</p>
+                        <input type="file" id="file-input">
                     </div>
 
-                    <div id="upload-progress" class="upload-progress">
-                        <p id="status-text"></p>
-                        <p></p>
-                        <div style="display: flex; align-items: center;">
-                            <p id="progress-text" style="margin-right: 10px; min-width: 40px; margin-top: 0; margin-bottom: 0; display: flex; align-items: center; height: 20px;">0%</p>
-                            <div class="progress-bar" style="flex-grow: 1; margin-bottom: 0;">
-                                <div id="progress-bar-fill" class="progress-bar-fill"></div>
-                            </div>
-                        </div>
+                    <div id="share-link" class="share-link">
+                        <label for="share-url">Download link:</label>
+                        <input type="text" id="share-url" readonly>
+                    </div>
+                </div>
+
+                <div id="upload-progress" class="upload-progress">
+                    <div class="progress-info">
+                        <span id="status-text" class="status-text">Connecting...</span>
+                        <span id="progress-text" class="progress-text">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div id="progress-bar-fill" class="progress-bar-fill"></div>
                     </div>
                 </div>
             </section>
-            <section><p></p><p></p></section>
-            <section>
-                <h3 id="curl">Send using cURL</h3>
-                <p>Use <code>curl</code> from your terminal for quick transfers. <b>100MiB maximum</b> for HTTP transfers.</p>
 
-                <pre><b># Send</b>
-curl -T <var>&lt;file&gt;</var> https://transit.sh/<code>&lt;your-chosen-id&gt;</code>/</pre>
+            <section class="section">
+                <div class="code-section">
+                    <h3>Send using cURL</h3>
+                    <p>Use <code>curl</code> from your terminal for quick transfers. <strong>100MiB maximum</strong> for HTTP transfers.</p>
 
-                <pre><b># Receive</b>
-curl -JLO https://transit.sh/<code>&lt;your-chosen-id&gt;</code>/</pre>
+                    <div class="code-block">
+                        <code><span class="code-comment"># Send</span>
+curl -T <span class="code-variable">&lt;file&gt;</span> https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span>/</code>
+                    </div>
 
-                <pre><b># Example</b>
-curl -T <var>/music/song.mp3</var> https://transit.sh/<code>music-for-dad</code>/
-curl -JLO https://transit.sh/<code>music-for-dad</code>/</pre>
+                    <div class="code-block">
+                        <code><span class="code-comment"># Receive</span>
+curl -JLO https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span>/</code>
+                    </div>
+
+                    <div class="code-block">
+                        <code><span class="code-comment"># Example</span>
+curl -T <span class="code-variable">/music/song.mp3</span> https://transit.sh/<span class="code-string">music-for-dad</span>/
+curl -JLO https://transit.sh/<span class="code-string">music-for-dad</span>/</code>
+                    </div>
+                </div>
             </section>
 
-            <section>
-                <h3 id="information">Important Information</h3>
-                <ul>
-                    <li>Files are <strong>not stored</strong> by the service at any point and only exist in memory one chunk at a time.</li>
-                    <li>You can use one method to upload and another to download (e.g., upload via browser, download via cURL).</li>
-                    <li>For large files, the browser upload method using WebSockets is recommended as HTTP transfers may have limitations.</li>
-                    <li>This service is hosted as a proof-of-concept with no guarantees. See the <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> for more details.</li>
-                </ul>
+            <section class="section">
+                <div class="info-list">
+                    <h3>Important Information</h3>
+                    <ul>
+                        <li>Files are <strong>not stored</strong> by the service at any point and only exist in memory one chunk at a time.</li>
+                        <li>You can use one method to upload and another to download (e.g., upload via browser, download via cURL).</li>
+                        <li>For large files, the browser upload method using WebSockets is recommended as HTTP transfers may have limitations.</li>
+                        <li>This service is hosted as a proof-of-concept with no guarantees. See the <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> for more details.</li>
+                    </ul>
+                </div>
             </section>
-        </div>
-    </main>
+        </main>
 
-    <footer class="footer">
-        <div class="footer__copyright">
-            Free for non-commercial applications.<br>
-            <a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">© codesamuraii</a>
-        </div>
-    </footer>
+        <footer class="footer">
+            <p>Free for non-commercial applications.<br>
+            <a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">© codesamuraii</a></p>
+        </footer>
+    </div>
 
     <script src="/static/js/file-transfer.js"></script>
 </body>

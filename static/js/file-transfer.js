@@ -16,7 +16,7 @@ function initFileTransfer() {
 }
 
 function setupEventListeners(elements) {
-    const { dropArea, fileInput, transferIdInput } = elements;
+    const { dropArea, fileInput } = elements;
 
     // Prevent default drag behaviors
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -100,8 +100,8 @@ function updateProgress(elements, progress) {
 function displayShareLink(elements, transferId) {
     const { shareUrl, shareLink, dropArea } = elements;
     shareUrl.value = `https://transit.sh/${transferId}`;
-    shareLink.style.display = 'flex'; // Changed from 'block' to 'flex'
-    dropArea.style.display = 'none'; // Changed from 'hidden = true' to 'display = none'
+    shareLink.style.display = 'flex';
+    dropArea.style.display = 'none';
 
     // Focus and select the share URL for easy copying
     setTimeout(() => {
@@ -114,8 +114,6 @@ function displayShareLink(elements, transferId) {
  * Uploads a file via WebSocket connection
  * @param {File} file - The file to be uploaded
  * @param {Object} elements - DOM elements used in the upload process
- * @param {HTMLInputElement} elements.transferIdInput - Input element for the transfer ID
- * @param {HTMLElement} elements.statusText - Element to display status messages
  */
 function uploadFile(file, elements) {
     const { statusText } = elements;
@@ -167,7 +165,7 @@ function handleWsMessage(event, ws, file, elements, abortController) {
 
 function handleWsError(error, statusText) {
     statusText.textContent = 'Error: ' + (error.message || 'Connection failed');
-    statusText.style.color = 'var(--error-color)';
+    statusText.style.color = 'var(--error)';
     console.error('WebSocket Error:', error);
 }
 
