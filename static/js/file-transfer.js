@@ -136,7 +136,7 @@ function uploadFile(file, elements) {
 
 function handleWsOpen(ws, file, transferId, elements, abortController) {
     const { statusText } = elements;
-    // Send file metadata
+
     const metadata = {
         file_name: file.name,
         file_size: file.size,
