@@ -176,14 +176,10 @@ async function sendFileInChunks(ws, file, elements, abortController) {
     let offset = 0;
     const reader = new FileReader();
 
-    // Use a signal to abort operations
     const signal = abortController.signal;
-
-    // Check if operation was aborted
     if (signal.aborted) return;
 
     try {
-        // Process chunks with backpressure handling
         while (offset < file.size && !signal.aborted) {
             // Wait until WebSocket buffer has room
             await waitForWebSocketBuffer(ws);
