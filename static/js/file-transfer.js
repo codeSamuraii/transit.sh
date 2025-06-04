@@ -91,9 +91,8 @@ function updateProgress(elements, progress) {
     progressBarFill.style.width = `${percentage}%`;
     progressText.textContent = `${percentage}%`;
 
-    // Update status for better user feedback
     if (percentage === 100) {
-        elements.statusText.textContent = 'Processing upload...';
+        elements.statusText.textContent = 'Completing transfer...';
     }
 }
 
