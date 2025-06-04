@@ -221,7 +221,6 @@ async function sendFileInChunks(ws, file, elements, abortController) {
 function waitForWebSocketBuffer(ws) {
     return new Promise(resolve => {
         const checkBuffer = () => {
-            // Only proceed when buffer is below threshold
             if (ws.bufferedAmount < 512 * 1024) { // 512KB threshold
                 resolve();
             } else {
@@ -257,7 +256,6 @@ function finalizeTransfer(ws, statusText) {
     // Send empty chunk to signal end of transfer
     ws.send(new ArrayBuffer(0));
 
-    // Close the connection after a small delay to ensure the empty buffer is sent
     setTimeout(() => {
         statusText.textContent = '✓ Transfer complete!';
         ws.close();
