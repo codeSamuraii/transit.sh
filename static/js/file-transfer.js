@@ -118,7 +118,7 @@ function displayShareLink(elements, transferId) {
 function uploadFile(file, elements) {
     const { statusText } = elements;
     const transferId = generateTransferId();
-    const ws = new WebSocket(`ws://localhost:8080/send/${transferId}`);
+    const ws = new WebSocket(`wss://transit.sh/send/${transferId}`);
     let abortController = new AbortController();
 
     showProgress(elements);
