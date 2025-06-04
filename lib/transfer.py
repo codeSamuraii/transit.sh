@@ -19,7 +19,7 @@ class FileTransfer:
     def __init__(self, identifier: str, file: File):
         self.identifier = identifier
         self.file = file
-        self.queue = asyncio.Queue(1)
+        self.queue = asyncio.Queue(24)
         self.client_connected = asyncio.Event()
         self.transfer_complete = asyncio.Event()
 

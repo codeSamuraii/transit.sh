@@ -178,7 +178,7 @@ function cleanupTransfer(abortController) {
 
 async function sendFileInChunks(ws, file, elements, abortController) {
     const { statusText } = elements;
-    const chunkSize = 32768; // 32KB chunks
+    const chunkSize = 128 * 1024; // 128KB
     let offset = 0;
     const reader = new FileReader();
 
