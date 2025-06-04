@@ -60,12 +60,12 @@ class FileTransfer:
         try:
             async for chunk in stream:
                 if not chunk:
-                    print(f"⇑ {self.uid} - Received empty chunk, ending upload.")
+                    print(f"⇑ {self.uid} ⇑ - Received empty chunk, ending upload.")
                     break
                 await self.queue.put(chunk)
 
         except WebSocketException as e:
-            print(f"⇑ {self.uid} - Client disconnected during upload.")
+            print(f"⇑ {self.uid} ⇑ - Client disconnected during upload.")
 
         await self.queue.put(None)
         await self.transfer_complete.wait()
@@ -76,11 +76,11 @@ class FileTransfer:
             if chunk is not None:
                 yield chunk
             else:
-                print(f"⇓ {self.uid} - No more chunks to receive.")
+                print(f"⇓ {self.uid} ⇓ - No more chunks to receive.")
                 break
 
         self.transfer_complete.set()
-        print(f"⇓ {self.uid} - Transfer complete, notified all waiting tasks.")
+        print(f"⇓ {self.uid} ⇓ - Transfer complete, notified all waiting tasks.")
 
     def __del__(self):
         print(f"Deleting transfer '{self.uid}'. {len(self.instances) - 1} transferes remaining.")

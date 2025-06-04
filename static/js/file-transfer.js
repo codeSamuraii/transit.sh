@@ -99,7 +99,7 @@ function updateProgress(elements, progress) {
 
 function displayShareLink(elements, transferId) {
     const { shareUrl, shareLink, dropArea } = elements;
-    shareUrl.value = `http://localhost:8080/${transferId}`;
+    shareUrl.value = `https://transit.sh/${transferId}`;
     shareLink.style.display = 'flex';
     dropArea.style.display = 'none';
 
@@ -110,15 +110,10 @@ function displayShareLink(elements, transferId) {
     }, 300);
 }
 
-/**
- * Uploads a file via WebSocket connection
- * @param {File} file - The file to be uploaded
- * @param {Object} elements - DOM elements used in the upload process
- */
 function uploadFile(file, elements) {
     const { statusText } = elements;
     const transferId = generateTransferId();
-    const ws = new WebSocket(`ws://localhost:8080/send/${transferId}`);
+    const ws = new WebSocket(`wss://transit.sh/send/${transferId}`);
     let abortController = new AbortController();
 
     showProgress(elements);
