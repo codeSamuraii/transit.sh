@@ -30,9 +30,3 @@ app.include_router(ws_router)
 
 # Mount local static for HTML
 app.mount('/static', StaticFiles(directory='static', html=True), name='static')
-
-# Mount remote if present or local static for CSS
-if Path('/extra').exists():
-    app.mount('/css', StaticFiles(directory='/extra'), name='css')
-else:
-    app.mount('/css', StaticFiles(directory='static'), name='css')
