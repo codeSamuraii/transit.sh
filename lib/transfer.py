@@ -16,10 +16,10 @@ class FileTransfer:
 
     instances = weakref.WeakValueDictionary()
 
-    def __init__(self, identifier: str, file: File):
-        self.identifier = identifier
+    def __init__(self, uid: str, file: File):
+        self.uid = uid
         self.file = file
-        self.queue = asyncio.Queue(12)
+        self.queue = asyncio.Queue(16)
         self.client_connected = asyncio.Event()
         self.transfer_complete = asyncio.Event()
 
@@ -42,16 +42,16 @@ class FileTransfer:
         return file
 
     @classmethod
-    def create_transfer(cls, identifier: str, file: File):
-        transfer = cls(identifier, file)
-        cls.instances[identifier] = transfer
+    def create_transfer(cls, uid: str, file: File):
+        transfer = cls(uid, file)
+        cls.instances[uid] = transfer
         return transfer
 
     @classmethod
-    def get(cls, identifier: str):
-        if transfer := cls.instances.get(identifier):
+    def get(cls, uid: str):
+        if transfer := cls.instances.get(uid):
             return transfer
-        raise KeyError(f"FileTransfer '{identifier}' not found.")
+        raise KeyError(f"FileTransfer '{uid}' not found.")
 
     def get_file_info(self):
         return self.file.name, self.file.size, self.file.content_type
@@ -60,12 +60,12 @@ class FileTransfer:
         try:
             async for chunk in stream:
                 if not chunk:
-                    print(f"⇑ {self.identifier} - Received empty chunk, ending upload.")
+                    print(f"⇑ {self.uid} - Received empty chunk, ending upload.")
                     break
                 await self.queue.put(chunk)
 
         except WebSocketException as e:
-            print(f"⇑ {self.identifier} - Client disconnected during upload.")
+            print(f"⇑ {self.uid} - Client disconnected during upload.")
 
         await self.queue.put(None)
         await self.transfer_complete.wait()
@@ -76,11 +76,11 @@ class FileTransfer:
             if chunk is not None:
                 yield chunk
             else:
-                print(f"⇓ {self.identifier} - No more chunks to receive.")
+                print(f"⇓ {self.uid} - No more chunks to receive.")
                 break
 
         self.transfer_complete.set()
-        print(f"⇓ {self.identifier} - Transfer complete, notified all waiting tasks.")
+        print(f"⇓ {self.uid} - Transfer complete, notified all waiting tasks.")
 
     def __del__(self):
-        print(f"Deleting transfer '{self.identifier}'. {len(self.instances) - 1} transferes remaining.")
+        print(f"Deleting transfer '{self.uid}'. {len(self.instances) - 1} transferes remaining.")

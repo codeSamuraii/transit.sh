@@ -7,53 +7,44 @@ from lib import FileTransfer
 router = APIRouter()
 
 
-@router.websocket("/send/{identifier}")
-async def websocket_upload(websocket: WebSocket, identifier: str):
+@router.websocket("/send/{uid}")
+async def websocket_upload(websocket: WebSocket, uid: str):
     """
     Upload a file via WebSockets.
 
     A JSON header with file metadata should be sent first.
     Then, the client must wait for the signal before sending file chunks.
     """
-    uid = identifier
     await websocket.accept()
     print(f"⇑ {uid} - Websocket upload request." )
 
+    header = await websocket.receive_json()
+
     try:
-        header = await websocket.receive_json()
+        file = FileTransfer.get_file_from_header(header)
+        print(f"⇑ {uid} - File info: name={file.name}, size={file.size}, type={file.content_type}")
+    except KeyError as e:
+        print(f"⇑ {uid} - Invalid header: {header}, error: {e}")
+        await websocket.send_text(f"Error: Invalid header - {str(e)}")
+        return
 
-        try:
-            file = FileTransfer.get_file_from_header(header)
-            print(f"⇑ {uid} - File info: name={file.name}, size={file.size}, type={file.content_type}")
-        except KeyError as e:
-            print(f"⇑ {uid} - Invalid header: {header}, error: {e}")
-            await websocket.send_text(f"Error: Invalid header - {str(e)}")
-            return
+    transfer = FileTransfer.create_transfer(uid, file)
 
-        transfer = FileTransfer.create_transfer(uid, file)
+    await transfer.client_connected.wait()
+    print(f"⇑ {uid} - Client connected, signaling to start sending chunks")
+    await websocket.send_text("Go for file chunks")
 
-        await transfer.client_connected.wait()
-        print(f"⇑ {uid} - Client connected, signaling to start sending chunks")
-        await websocket.send_text("Go for file chunks")
-
-        print(f"⇑ {uid} - Starting upload...")
-        await transfer.transfer(websocket.iter_bytes())
-
-    except WebSocketDisconnect:
-        print(f"⇑ {uid} - WebSocket disconnected")
-    except Exception as e:
-        print(f"⇑ {uid} - Error during upload: {str(e)}")
+    print(f"⇑ {uid} - Starting upload...")
+    await transfer.transfer(websocket.iter_bytes())
 
 
-
-@router.websocket("/receive/{identifier}")
-async def websocket_download(websocket: WebSocket, identifier: str):
-    uid = identifier
+@router.websocket("/receive/{uid}")
+async def websocket_download(websocket: WebSocket, uid: str):
     await websocket.accept()
     print(f"⇓ {uid} - Websocket download request." )
 
     try:
-        transfer = FileTransfer.get(identifier)
+        transfer = FileTransfer.get(uid)
     except KeyError:
         print(f"⇓ {uid} - File not found.")
         await websocket.send_text("File not found")
