@@ -1,32 +1,12 @@
 # [Transit.sh](https://transit.sh)
-Direct file transfer in your terminal. No subscription, no storage, no additional tool needed.
+Direct file transfer without intermediary storage.
 
 Leveraging [asyncio](https://docs.python.org/3/library/asyncio.html) and [queues](https://docs.python.org/3/library/asyncio-queue.html), the API waits for the receiver to start downloading before accepting more incoming data.<br>
 
 > The service is currently deployed as a proof-of-concept without any no guarantees. Access it [here](https://transit.sh).
 
-## Usage
-
-```bash
-# Send
-curl -T <file> https://transit.sh/<some-string>/
-```
-
-```bash
-# Receive
-curl -JLO https://transit.sh/<some-string>/
-```
-
-```bash
-# Example
-curl -T /music/song.mp3 https://transit.sh/music-for-dad/
-curl -JLO https://transit.sh/music-for-dad/
-```
-_You can also navigate to the URL with your browser._
-
 ## Local API
-### Demonstration
-https://github.com/codeSamuraii/transit.sh/assets/17270548/7b6e46c7-3595-4a38-bc9b-7b89c0eadc81
+You can run the API locally to test it or use it in your own projects. The API is built with [FastAPI](https://fastapi.tiangolo.com/) and uses [Uvicorn](https://www.uvicorn.org/) as the ASGI server.
 
 ### Quick set-up
 Dependencies :

@@ -10,10 +10,10 @@ from views import http_router, ws_router
 
 app = FastAPI()
 
+# Remove health checks from logs
 class HealthCheckFilter(logging.Filter):
     def filter(self, record):
         return '"GET /health HTTP/1.1" 200' not in record.getMessage()
-
 logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 
 @app.get("/health")
