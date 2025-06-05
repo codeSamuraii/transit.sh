@@ -172,7 +172,7 @@ function cleanupTransfer(abortController) {
 
 async function sendFileInChunks(ws, file, elements, abortController) {
     const { statusText } = elements;
-    const chunkSize = 128 * 1024; // 128KB
+    const chunkSize = 64 * 1024; // 64KiB
     let offset = 0;
     const reader = new FileReader();
 
@@ -221,7 +221,7 @@ async function sendFileInChunks(ws, file, elements, abortController) {
 function waitForWebSocketBuffer(ws) {
     return new Promise(resolve => {
         const checkBuffer = () => {
-            if (ws.bufferedAmount < 1024 * 1024) { // 512KB threshold
+            if (ws.bufferedAmount < 1024 * 1024) { // 1MiB threshold (16 chunks of 64KiB)
                 resolve();
             } else {
                 setTimeout(checkBuffer, 50);

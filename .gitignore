@@ -1,4 +1,4 @@
-*.bin
+*.pyc
 prompt.md
 Pipfile
 Pipfile.lock
@@ -8,4 +8,4 @@ conf/
 other/
 TransitApp/
 .vscode/
-
+.DS_Store
