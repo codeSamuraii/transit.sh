@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>File transfer: {file_name}</title>
+    <meta property="og:title" content="File transfer: {file_name}" />
+    <meta property="og:description" content="Size: {file_size} bytes - Type: {file_type}" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="File transfer: {file_name}" />
+    <meta name="twitter:description" content="File transfer request from Transit.sh" />
+    <style>body {{ font-family: sans-serif; padding: 20px; text-align: center; }} .container {{ max-width: 600px; margin: auto; }}</style>
+</head>
+<body>
+    <div class="container">
+        <h2>File transfer request</h2>
+        <hr>
+        <p><strong>Filename:</strong> {file_name}</p>
+        <p><strong>Size:</strong> {file_size} bytes</p>
+        <p><strong>Type:</strong> {file_type}</p>
+        <p>This is a preview.<br>Please click the original link again in your app to start the download.</p>
+    </div>
+</body>
+</html>
