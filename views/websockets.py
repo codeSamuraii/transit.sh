@@ -67,7 +67,6 @@ async def websocket_download(websocket: WebSocket, uid: str):
 
     print(f"⇓ {uid} ⇓ - Notifying client is connected.")
     transfer.client_connected.set()
-    await asyncio.sleep(0.5)
 
     print(f"⇓ {uid} ⇓ - Starting download...")
     try:

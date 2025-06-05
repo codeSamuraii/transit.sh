@@ -60,7 +60,6 @@ async def http_download(uid: str):
 
     print(f"⇓ {uid} ⇓ - Notifying client is connected.")
     transfer.client_connected.set()
-    await asyncio.sleep(0.5)
 
     file_name, file_size, file_type = transfer.get_file_info()
 
