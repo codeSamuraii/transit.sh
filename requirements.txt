@@ -1,6 +1,8 @@
 -i https://pypi.org/simple
 fastapi==0.115.12; python_version >= '3.8'
 gunicorn==23.0.0; python_version >= '3.7'
+httptools==0.6.4; python_full_version >= '3.8.0'
 requests==2.32.3; python_version >= '3.8'
 uvicorn==0.34.3; python_version >= '3.9'
+uvloop==0.21.0; python_full_version >= '3.8.0'
 websockets==15.0.1; python_version >= '3.9'
