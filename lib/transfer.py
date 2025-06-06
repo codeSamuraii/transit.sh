@@ -1,4 +1,6 @@
+import uvloop
 import asyncio
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 import weakref
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
@@ -72,7 +74,11 @@ class FileTransfer:
 
     async def receive(self):
         while True:
-            chunk = await self.queue.get()
+            try:
+                chunk = await asyncio.wait_for(self.queue.get(), 60.0)
+            except asyncio.TimeoutError:
+                print(f"⇓ {self.uid} ⇓ - Timeout waiting for data after 60 seconds.")
+                break
             if chunk is not None:
                 yield chunk
             else:

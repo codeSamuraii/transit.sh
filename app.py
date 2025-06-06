@@ -1,14 +1,17 @@
 import logging
-from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from uvicorn.logging import DefaultFormatter
 
 from views import http_router, ws_router
 
 
-app = FastAPI()
+app = FastAPI(
+    debug=True,
+    title="Transit.sh",
+    description="Direct file transfer with no intermediary storage.",
+    version="0.1.0",
+    redirect_slashes=False
+)
 
 # Remove health checks from logs
 class HealthCheckFilter(logging.Filter):
@@ -35,6 +38,6 @@ if __name__ == "__main__":
         port=8080,
         loop='uvloop',
         http='httptools',
-        ws='websockets',
+        ws='webproto',
         workers=1,
     )

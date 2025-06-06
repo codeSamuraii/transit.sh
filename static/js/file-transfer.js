@@ -23,23 +23,16 @@ function setupEventListeners(elements) {
         dropArea.addEventListener(eventName, preventDefaults, false);
         document.body.addEventListener(eventName, preventDefaults, false);
     });
-
-    // Highlight drop area when item is dragged over it
     ['dragenter', 'dragover'].forEach(eventName => {
         dropArea.addEventListener(eventName, () => highlight(dropArea), false);
     });
-
     ['dragleave', 'drop'].forEach(eventName => {
         dropArea.addEventListener(eventName, () => unhighlight(dropArea), false);
     });
 
     // Handle dropped files
     dropArea.addEventListener('drop', e => handleDrop(e, elements), false);
-
-    // Handle click on drop area
     dropArea.addEventListener('click', () => fileInput.click());
-
-    // Handle file selection
     fileInput.addEventListener('change', () => {
         if (fileInput.files.length) {
             handleFiles(fileInput.files, elements);
