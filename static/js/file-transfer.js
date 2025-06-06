@@ -98,7 +98,7 @@ function updateProgress(elements, progress) {
 
 function displayShareLink(elements, transferId) {
     const { shareUrl, shareLink, dropArea } = elements;
-    shareUrl.value = `https://transit.sh/${transferId}`;
+    shareUrl.value = `https://transit-sh.fly.dev/${transferId}`;
     shareLink.style.display = 'flex';
     dropArea.style.display = 'none';
 
@@ -112,7 +112,7 @@ function displayShareLink(elements, transferId) {
 function uploadFile(file, elements) {
     const { statusText } = elements;
     const transferId = generateTransferId();
-    const ws = new WebSocket(`wss://transit.sh/send/${transferId}`);
+    const ws = new WebSocket(`wss://transit-sh.fly.dev/send/${transferId}`);
     let abortController = new AbortController();
 
     showProgress(elements);
@@ -189,7 +189,6 @@ async function sendFileInChunks(ws, file, elements, abortController) {
             const end = Math.min(offset + chunkSize, file.size);
             const slice = file.slice(offset, end);
 
-            // Read and send chunk
             const chunk = await readChunkAsArrayBuffer(reader, slice, signal);
             if (signal.aborted || !chunk) break;
 
