@@ -9,3 +9,6 @@ other/
 TransitApp/
 .vscode/
 .DS_Store
+.dockerignore
+Dockerfile
+fly.toml
