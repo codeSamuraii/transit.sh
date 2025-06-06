@@ -216,7 +216,7 @@ function waitForWebSocketBuffer(ws) {
             if (ws.bufferedAmount < 1024 * 1024) { // 1MiB threshold (16 chunks of 64KiB)
                 resolve();
             } else {
-                setTimeout(checkBuffer, 50);
+                setTimeout(checkBuffer, 200);
             }
         };
         checkBuffer();

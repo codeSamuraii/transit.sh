@@ -38,6 +38,6 @@ if __name__ == "__main__":
         port=8080,
         loop='uvloop',
         http='httptools',
-        ws='webproto',
         workers=1,
+        ws_per_message_deflate=False
     )
