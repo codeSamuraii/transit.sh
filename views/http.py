@@ -88,10 +88,12 @@ async def http_download(uid: str, request: Request):
 
     print(f"⇓ {uid} ⇓ - Notifying client is connected.")
     transfer.client_connected.set()
+    iterator = aiter(transfer.receive())
 
     print(f"⇓ {uid} ⇓ - Starting download of {file_name} ({file_size} bytes, type: {file_type})")
     return StreamingResponse(
-        transfer.receive(),
+        iterator,
+        status_code=200,
         media_type=file_type,
         headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
     )
