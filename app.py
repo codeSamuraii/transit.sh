@@ -1,9 +1,14 @@
 import logging
 from fastapi import FastAPI
+from multiprocessing import Manager
 from fastapi.staticfiles import StaticFiles
 
 from views import http_router, ws_router
 
+
+manager = Manager()
+store = manager.dict()
+store['instances'] = {}
 
 app = FastAPI(
     debug=True,

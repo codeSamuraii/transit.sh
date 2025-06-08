@@ -16,7 +16,7 @@ class File:
 
 class FileTransfer:
 
-    instances = weakref.WeakValueDictionary()
+    instances = None
 
     def __init__(self, uid: str, file: File):
         self.uid = uid
@@ -24,6 +24,9 @@ class FileTransfer:
         self.queue = asyncio.Queue(16)
         self.client_connected = asyncio.Event()
         self.transfer_complete = asyncio.Event()
+        if FileTransfer.instances is None:
+            import app
+            FileTransfer.instances = app.store['instances']
 
     @staticmethod
     def get_file_from_request(request: Request):
@@ -60,14 +63,19 @@ class FileTransfer:
 
     async def transfer(self, stream: AsyncIterator[bytes]):
         try:
-            async for chunk in stream:
+            while True:
+                chunk = await asyncio.wait_for(anext(stream), 10.0)
                 if not chunk:
                     print(f"⇑ {self.uid} ⇑ - Received empty chunk, ending upload.")
                     break
-                await self.queue.put(chunk)
+                await asyncio.wait_for(self.queue.put(chunk), 10.0)
 
         except WebSocketException as e:
             print(f"⇑ {self.uid} ⇑ - Client disconnected during upload.")
+            return
+        except asyncio.TimeoutError:
+            print(f"⇑ {self.uid} ⇑ - Timeout waiting for data after 10 seconds.")
+            return
 
         await self.queue.put(None)
         await self.transfer_complete.wait()
@@ -75,15 +83,16 @@ class FileTransfer:
     async def receive(self):
         while True:
             try:
-                chunk = await asyncio.wait_for(self.queue.get(), 60.0)
+                chunk = await asyncio.wait_for(self.queue.get(), 20.0)
             except asyncio.TimeoutError:
-                print(f"⇓ {self.uid} ⇓ - Timeout waiting for data after 60 seconds.")
+                print(f"⇓ {self.uid} ⇓ - Timeout waiting for data after 20 seconds.")
                 break
-            if chunk is not None:
-                yield chunk
-            else:
+
+            if chunk is None:
                 print(f"⇓ {self.uid} ⇓ - No more chunks to receive.")
                 break
+
+            yield chunk
 
         self.transfer_complete.set()
         print(f"⇓ {self.uid} ⇓ - Transfer complete, notified all waiting tasks.")
