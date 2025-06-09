@@ -1,7 +1,6 @@
-import asyncio
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect
 
-from lib import FileTransfer
+from lib.transfer import FileTransfer
 
 
 router = APIRouter()
@@ -30,12 +29,12 @@ async def websocket_upload(websocket: WebSocket, uid: str):
 
     transfer = FileTransfer.create_transfer(uid, file)
 
-    await transfer.client_connected.wait()
+    transfer.client_connected.wait(timeout=300)
     print(f"⇑ {uid} ⇑ - Client connected, signaling to start sending chunks")
     await websocket.send_text("Go for file chunks")
 
     print(f"⇑ {uid} ⇑ - Starting upload...")
-    await transfer.transfer(websocket.iter_bytes())
+    await transfer.collect_upload(websocket.iter_bytes())
 
 
 @router.websocket("/receive/{uid}")
@@ -70,7 +69,7 @@ async def websocket_download(websocket: WebSocket, uid: str):
 
     print(f"⇓ {uid} ⇓ - Starting download...")
     try:
-        async for chunk in transfer.receive():
+        async for chunk in transfer.supply_download():
             await websocket.send_bytes(chunk)
         await websocket.send_bytes(b'')
         print(f"⇓ {uid} ⇓ - Download complete.")

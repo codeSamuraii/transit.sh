@@ -3,7 +3,7 @@ from fastapi import Request, APIRouter
 from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
 
-from lib import FileTransfer
+from lib.transfer import FileTransfer
 
 router = APIRouter()
 
@@ -32,10 +32,10 @@ async def http_upload(request: Request, uid: str, filename: str | None = None):
     transfer = FileTransfer.create_transfer(uid, file)
 
     print(f"⇑ {uid} ⇑ - Waiting for client to connect...")
-    await transfer.client_connected.wait()
+    transfer.client_connected.wait(timeout=300)
 
     print(f"⇑ {uid} ⇑ - Client connected. Uploading...")
-    await transfer.transfer(request.stream())
+    await transfer.collect_upload(request.stream())
 
     print(f"⇑ {uid} ⇑ - Upload complete.")
     return PlainTextResponse("Transfer complete.", status_code=200)
@@ -91,7 +91,7 @@ async def http_download(uid: str, request: Request):
 
     print(f"⇓ {uid} ⇓ - Starting download of {file_name} ({file_size} bytes, type: {file_type})")
     data_stream = StreamingResponse(
-        transfer.receive(),
+        transfer.supply_download(),
         status_code=200,
         media_type=file_type,
         headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}

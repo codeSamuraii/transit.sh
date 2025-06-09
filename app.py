@@ -8,7 +8,6 @@ from views import http_router, ws_router
 
 manager = Manager()
 store = manager.dict()
-store['instances'] = {}
 
 app = FastAPI(
     debug=True,

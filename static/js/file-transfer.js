@@ -91,7 +91,7 @@ function updateProgress(elements, progress) {
 
 function displayShareLink(elements, transferId) {
     const { shareUrl, shareLink, dropArea } = elements;
-    shareUrl.value = `https://transit-sh.fly.dev/${transferId}`;
+    shareUrl.value = `https://transit.sh/${transferId}`;
     shareLink.style.display = 'flex';
     dropArea.style.display = 'none';
 
@@ -105,7 +105,7 @@ function displayShareLink(elements, transferId) {
 function uploadFile(file, elements) {
     const { statusText } = elements;
     const transferId = generateTransferId();
-    const ws = new WebSocket(`wss://transit-sh.fly.dev/send/${transferId}`);
+    const ws = new WebSocket(`wss://transit.sh/send/${transferId}`);
     let abortController = new AbortController();
 
     showProgress(elements);
@@ -136,7 +136,7 @@ function handleWsOpen(ws, file, transferId, elements, abortController) {
     };
 
     ws.send(JSON.stringify(metadata));
-    statusText.textContent = 'Waiting for the receiver to start the download...';
+    statusText.textContent = 'Waiting for the receiver to start the download... (5 minutes max.)';
     displayShareLink(elements, transferId);
 }
 
