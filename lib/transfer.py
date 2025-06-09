@@ -28,6 +28,7 @@ class FileTransfer:
         self.uid = uid
         self.file = file
         self.get_redis()
+        self.r_queue = f'transfer:{uid}:queue'
 
     @classmethod
     def get_redis(cls) -> redis.Redis:
@@ -75,21 +76,12 @@ class FileTransfer:
         file = File.from_json(metadata_json)
         return cls(uid, file)
 
+
     def get_file_info(self):
         return self.file.name, self.file.size, self.file.content_type
 
-    async def set_event(self, event_name: str):
-        await self.store.set(f'transfer:{self.uid}:{event_name}', '1', ex=3600)
-
-    async def wait_for_event(self, event_name: str, timeout: float = 300.0):
-        async def _wait():
-            while not bool(await self.store.get(f'transfer:{self.uid}:{event_name}')):
-                await asyncio.sleep(0.5)
-        await asyncio.wait_for(_wait(), timeout=timeout)
-
     async def get_from_queue(self, timeout: float = 30.0) -> bytes:
-        # Use BRPOP for blocking pop with timeout
-        result = await self.store.brpop(f'transfer:{self.uid}:queue', timeout=timeout)
+        result = await self.store.brpop(self.r_queue, timeout=timeout)
         if not result:
             raise asyncio.TimeoutError("Timeout waiting for data")
 
@@ -97,45 +89,55 @@ class FileTransfer:
         return chunk
 
     async def put_in_queue(self, chunk: bytes):
-        while await self.store.llen(f'transfer:{self.uid}:queue') > 16:
+        while await self.store.llen(self.r_queue) >= 16:
             await asyncio.sleep(0.5)
 
-        await self.store.lpush(f'transfer:{self.uid}:queue', chunk)
-        await self.store.expire(f'transfer:{self.uid}:queue', 3600)
+        await self.store.lpush(self.r_queue, chunk)
+        await self.store.expire(self.r_queue, 30, gt=True)
+
+
+    async def set_event(self, event_name: str):
+        await self.store.set(f'transfer:{self.uid}:{event_name}', '1', nx=True, ex=300)
+
+    async def wait_for_event(self, event_name: str, timeout: float = 300.0):
+        async def _wait(_uid, _evt):
+            while await self.store.get(f'transfer:{_uid}:{_evt}') is None:
+                await asyncio.sleep(0.5)
+        await asyncio.wait_for(_wait(self.uid, event_name), timeout=timeout)
 
     async def collect_upload(self, stream: AsyncIterator[bytes]):
         try:
             while True:
                 chunk = await anext(stream, None)
                 if not chunk:
-                    print(f"△ {self.uid} - Received empty chunk, ending upload...")
+                    print(f"{self.uid} △ Received empty chunk, ending upload...")
                     break
                 await asyncio.wait_for(self.put_in_queue(chunk), 30.0)
 
         except WebSocketException as e:
-            print(f"△ {self.uid} - Client disconnected during upload.")
+            print(f"{self.uid} △ Client disconnected during upload.")
             await self.cleanup()
             return
 
         await self.put_in_queue(b'')
         await self.wait_for_event('transfer_complete', timeout=3600)
-        print(f"△ {self.uid} - Received transfer complete signal.")
+        print(f"{self.uid} △ Received transfer complete signal.")
 
     async def supply_download(self):
         while True:
             try:
                 chunk = await self.get_from_queue()
             except asyncio.TimeoutError:
-                print(f"▼ {self.uid} - Timeout waiting for data after 20 seconds.")
+                print(f"{self.uid} ▼ Timeout waiting for data after 20 seconds.")
                 break
             if not chunk:
-                print(f"▼ {self.uid} - No more chunks to receive.")
+                print(f"{self.uid} ▼ No more chunks to receive.")
                 break
 
             yield chunk
 
         await self.set_event("transfer_complete")
-        print(f"▼ {self.uid} - Transfer complete, notified all waiting tasks.")
+        print(f"{self.uid} ▼ Transfer complete, notified all waiting tasks.")
         await self.cleanup()
 
     async def cleanup(self):

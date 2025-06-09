@@ -1,4 +1,5 @@
 import pathlib
+from typing import Optional
 from fastapi import Request, APIRouter
 from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
@@ -8,22 +9,18 @@ from lib.transfer import FileTransfer
 router = APIRouter()
 
 
-@router.put("/{uid}")
 @router.put("/{uid}/{filename}")
-async def http_upload(request: Request, uid: str, filename: str | None = None):
+async def http_upload(request: Request, uid: str, filename: Optional[str] = None):
     """
     Upload a file via HTTP PUT.
 
-    The filename can be provided in two ways:
-    - As a path parameter: `/{uid}/{filename}` (automatically used by `curl --upload-file`)
-    - As a query parameter: `/{uid}?filename={filename}`
-
+    The filename can be provided as a path parameter: `/{uid}/{filename}` (automatically used by `curl --upload-file`)
     File size is limited to 100 MiB for HTTP transfers.
     """
     if not filename:
         raise HTTPException(status_code=400, detail="Filename is required as path parameter or query parameter")
 
-    print(f"△ {uid} - HTTP upload request: {filename}" )
+    print(f"{uid} △ HTTP upload request: {filename}" )
     file = FileTransfer.get_file_from_request(request)
 
     if file.size > 100*1024**2:
@@ -31,13 +28,13 @@ async def http_upload(request: Request, uid: str, filename: str | None = None):
 
     transfer = await FileTransfer.create(uid, file)
 
-    print(f"△ {uid} - Waiting for client to connect...")
+    print(f"{uid} △ Waiting for client to connect...")
     await transfer.wait_for_event('client_connected', timeout=300)
 
-    print(f"△ {uid} - Client connected. Uploading...")
+    print(f"{uid} △ Client connected. Uploading...")
     await transfer.collect_upload(request.stream())
 
-    print(f"△ {uid} - Upload complete.")
+    print(f"{uid} △ Upload complete.")
     return PlainTextResponse("Transfer complete.", status_code=200)
 
 
@@ -70,26 +67,25 @@ async def http_download(uid: str, request: Request):
     if '.' in uid or '/' in uid:
         raise HTTPException(status_code=400, detail="Invalid transfer ID. Must not contain '.' or '/'.")
 
-    user_agent = request.headers.get('user-agent', '').lower()
-    is_prefetcher = any(prefetch_ua in user_agent for prefetch_ua in PREFETCHER_USER_AGENTS)
-
     try:
         transfer = await FileTransfer.get(uid)
-        print(f"▼ {uid} - HTTP download request." )
+        print(f"{uid} ▼ HTTP download request." )
     except KeyError:
         raise HTTPException(status_code=404, detail="Transfer not found.")
 
     file_name, file_size, file_type = transfer.get_file_info()
+    user_agent = request.headers.get('user-agent', '').lower()
+    is_prefetcher = any(prefetch_ua in user_agent for prefetch_ua in PREFETCHER_USER_AGENTS)
 
     if is_prefetcher:
-        print(f"▼ {uid} - Prefetch request detected from User-Agent: {request.headers.get('user-agent')}. Serving metadata.")
+        print(f"{uid} ▼ Prefetch request detected from User-Agent: {request.headers.get('user-agent')}. Serving metadata.")
         html_preview = get_preview_html(file_name=file_name, file_size=file_size, file_type=file_type)
         return HTMLResponse(content=html_preview, status_code=200)
 
-    print(f"▼ {uid} - Notifying client is connected.")
+    print(f"{uid} ▼ Notifying client is connected.")
     await transfer.set_event('client_connected')
 
-    print(f"▼ {uid} - Starting download of {file_name} ({file_size} bytes, type: {file_type})")
+    print(f"{uid} ▼ Starting download of {file_name} ({file_size} bytes, type: {file_type})")
     data_stream = StreamingResponse(
         transfer.supply_download(),
         status_code=200,
