@@ -1,13 +1,19 @@
+import uvloop
+import asyncio
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+import os
 import logging
+import redis.asyncio as redis
 from fastapi import FastAPI
-from multiprocessing import Manager
 from fastapi.staticfiles import StaticFiles
 
 from views import http_router, ws_router
 
 
-manager = Manager()
-store = manager.dict()
+# Initialize Redis client
+redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+
 
 app = FastAPI(
     debug=True,
@@ -27,6 +33,10 @@ logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 async def get_health():
     return {"status": "ok"}
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    await redis_client.close()
+
 app.include_router(http_router)
 app.include_router(ws_router)
 
@@ -34,14 +44,15 @@ app.include_router(ws_router)
 app.mount('/', StaticFiles(directory='static', html=True), name='static')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     import uvicorn
     uvicorn.run(
-        "app:app",
+        'app:app',
         host='0.0.0.0',
         port=8080,
-        loop='uvloop',
+        workers=4,
         http='httptools',
-        workers=1,
+        ws='websockets',
+        loop='uvloop',
         ws_per_message_deflate=False
     )

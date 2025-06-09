@@ -23,21 +23,21 @@ async def http_upload(request: Request, uid: str, filename: str | None = None):
     if not filename:
         raise HTTPException(status_code=400, detail="Filename is required as path parameter or query parameter")
 
-    print(f"⇑ {uid} ⇑ - HTTP upload request: {filename}" )
+    print(f"△ {uid} - HTTP upload request: {filename}" )
     file = FileTransfer.get_file_from_request(request)
 
     if file.size > 100*1024**2:
         raise HTTPException(status_code=413, detail="File too large. 100MiB maximum for HTTP.")
 
-    transfer = FileTransfer.create_transfer(uid, file)
+    transfer = await FileTransfer.create(uid, file)
 
-    print(f"⇑ {uid} ⇑ - Waiting for client to connect...")
-    transfer.client_connected.wait(timeout=300)
+    print(f"△ {uid} - Waiting for client to connect...")
+    await transfer.wait_for_event('client_connected', timeout=300)
 
-    print(f"⇑ {uid} ⇑ - Client connected. Uploading...")
+    print(f"△ {uid} - Client connected. Uploading...")
     await transfer.collect_upload(request.stream())
 
-    print(f"⇑ {uid} ⇑ - Upload complete.")
+    print(f"△ {uid} - Upload complete.")
     return PlainTextResponse("Transfer complete.", status_code=200)
 
 
@@ -74,22 +74,22 @@ async def http_download(uid: str, request: Request):
     is_prefetcher = any(prefetch_ua in user_agent for prefetch_ua in PREFETCHER_USER_AGENTS)
 
     try:
-        transfer = FileTransfer.get(uid)
-        print(f"⇓ {uid} ⇓ - HTTP download request." )
+        transfer = await FileTransfer.get(uid)
+        print(f"▼ {uid} - HTTP download request." )
     except KeyError:
         raise HTTPException(status_code=404, detail="Transfer not found.")
 
     file_name, file_size, file_type = transfer.get_file_info()
 
     if is_prefetcher:
-        print(f"⇓ {uid} ⇓ - Prefetch request detected from User-Agent: {request.headers.get('user-agent')}. Serving metadata.")
+        print(f"▼ {uid} - Prefetch request detected from User-Agent: {request.headers.get('user-agent')}. Serving metadata.")
         html_preview = get_preview_html(file_name=file_name, file_size=file_size, file_type=file_type)
         return HTMLResponse(content=html_preview, status_code=200)
 
-    print(f"⇓ {uid} ⇓ - Notifying client is connected.")
-    transfer.client_connected.set()
+    print(f"▼ {uid} - Notifying client is connected.")
+    await transfer.set_event('client_connected')
 
-    print(f"⇓ {uid} ⇓ - Starting download of {file_name} ({file_size} bytes, type: {file_type})")
+    print(f"▼ {uid} - Starting download of {file_name} ({file_size} bytes, type: {file_type})")
     data_stream = StreamingResponse(
         transfer.supply_download(),
         status_code=200,

@@ -1,7 +1,8 @@
-import queue
+import json
+import redis
 import asyncio
-from dataclasses import dataclass
-from typing import AsyncIterator, Optional
+from dataclasses import dataclass, asdict
+from typing import AsyncIterator, Optional, Dict, Any
 from fastapi import Request, WebSocketException
 
 
@@ -11,23 +12,32 @@ class File:
     name: Optional[str] = None
     content_type: Optional[str] = None
 
+    def to_json(self) -> Dict[str, Any]:
+        return json.dumps(asdict(self))
+
+    @classmethod
+    def from_json(cls, data: str) -> 'File':
+        return cls(**json.loads(data))
+
 
 class FileTransfer:
 
-    manager = None
-    store = None
+    store: Optional[redis.Redis] = None
 
     def __init__(self, uid: str, file: File):
         self.uid = uid
         self.file = file
+        self.get_redis()
 
-        manager = FileTransfer._load_manager()
-        self.queue = manager.Queue(16)
-        self.client_connected = manager.Event()
-        self.transfer_complete = manager.Event()
+    @classmethod
+    def get_redis(cls) -> redis.Redis:
+        if cls.store is None:
+            from app import redis_client
+            cls.store = redis_client
+        return cls.store
 
     @staticmethod
-    def get_file_from_request(request: Request):
+    def get_file_from_request(request: Request) -> File:
         file = File(
             name=request.path_params.get('filename'),
             size=int(request.headers.get('content-length') or 1),
@@ -36,106 +46,100 @@ class FileTransfer:
         return file
 
     @staticmethod
-    def get_file_from_header(header: dict):
+    def get_file_from_header(header: dict) -> File:
         file = File(
-            name=header['file_name'].encode('ascii', 'ignore').decode('utf-8'),
+            name=header['file_name'].encode('ascii', 'replace').decode(),
             size=int(header['file_size']),
             content_type=header['file_type']
         )
         return file
 
     @classmethod
-    def _load_manager(cls):
-        if cls.manager is None:
-            from app import manager
-            cls.manager = manager
-        return cls.manager
-
-    @classmethod
-    def _load_store(cls):
-        if cls.store is None:
-            from app import store
-            cls.store = store
-        return cls.store
-
-    @classmethod
-    def create_transfer(cls, uid: str, file: File):
-        store = cls._load_store()
+    async def create(cls, uid: str, file: File):
         transfer = cls(uid, file)
-        store[uid] = transfer
+        await transfer.store.set(
+            f'transfer:{uid}:metadata',
+            file.to_json(),
+            ex=1800
+        )
+
         return transfer
 
     @classmethod
-    def get(cls, uid: str):
-        store = cls._load_store()
-        if transfer := store.get(uid):
-            return transfer
-        raise KeyError(f"FileTransfer '{uid}' not found.")
+    async def get(cls, uid: str):
+        from app import redis_client
+        metadata_json = await redis_client.get(f'transfer:{uid}:metadata')
+        if not metadata_json:
+            raise KeyError(f"FileTransfer '{uid}' not found.")
+
+        file = File.from_json(metadata_json)
+        return cls(uid, file)
 
     def get_file_info(self):
         return self.file.name, self.file.size, self.file.content_type
 
-    async def _get_from_queue(self) -> bytes:
-        while True:
-            try:
-                chunk = self.queue.get_nowait()
-            except queue.Empty:
-                await asyncio.sleep(0.2)
-                continue
-            else:
-                break
+    async def set_event(self, event_name: str):
+        await self.store.set(f'transfer:{self.uid}:{event_name}', '1', ex=3600)
 
+    async def wait_for_event(self, event_name: str, timeout: float = 300.0):
+        async def _wait():
+            while not bool(await self.store.get(f'transfer:{self.uid}:{event_name}')):
+                await asyncio.sleep(0.5)
+        await asyncio.wait_for(_wait(), timeout=timeout)
+
+    async def get_from_queue(self, timeout: float = 30.0) -> bytes:
+        # Use BRPOP for blocking pop with timeout
+        result = await self.store.brpop(f'transfer:{self.uid}:queue', timeout=timeout)
+        if not result:
+            raise asyncio.TimeoutError("Timeout waiting for data")
+
+        _, chunk = result
         return chunk
 
-    async def get_from_queue(self, timeout: float = 10.0) -> bytes:
-        return await asyncio.wait_for(self._get_from_queue(), timeout)
+    async def put_in_queue(self, chunk: bytes):
+        while await self.store.llen(f'transfer:{self.uid}:queue') > 16:
+            await asyncio.sleep(0.5)
 
-    async def _put_in_queue(self, chunk: bytes):
-        while True:
-            try:
-                self.queue.put_nowait(chunk)
-            except queue.Full:
-                await asyncio.sleep(0.2)
-                continue
-            else:
-                break
-
-    async def put_in_queue(self, chunk: bytes, timeout: float = 10.0):
-        return await asyncio.wait_for(self._put_in_queue(chunk), timeout)
+        await self.store.lpush(f'transfer:{self.uid}:queue', chunk)
+        await self.store.expire(f'transfer:{self.uid}:queue', 3600)
 
     async def collect_upload(self, stream: AsyncIterator[bytes]):
         try:
             while True:
                 chunk = await anext(stream, None)
                 if not chunk:
-                    print(f"⇑ {self.uid} ⇑ - Received empty chunk, ending upload.")
+                    print(f"△ {self.uid} - Received empty chunk, ending upload...")
                     break
-                await self.put_in_queue(chunk)
+                await asyncio.wait_for(self.put_in_queue(chunk), 30.0)
 
         except WebSocketException as e:
-            print(f"⇑ {self.uid} ⇑ - Client disconnected during upload.")
+            print(f"△ {self.uid} - Client disconnected during upload.")
+            await self.cleanup()
             return
 
-        await self.put_in_queue(None)
-        self.transfer_complete.wait()
+        await self.put_in_queue(b'')
+        await self.wait_for_event('transfer_complete', timeout=3600)
+        print(f"△ {self.uid} - Received transfer complete signal.")
 
     async def supply_download(self):
         while True:
             try:
                 chunk = await self.get_from_queue()
             except asyncio.TimeoutError:
-                print(f"⇓ {self.uid} ⇓ - Timeout waiting for data after 20 seconds.")
+                print(f"▼ {self.uid} - Timeout waiting for data after 20 seconds.")
                 break
-
-            if chunk is None:
-                print(f"⇓ {self.uid} ⇓ - No more chunks to receive.")
+            if not chunk:
+                print(f"▼ {self.uid} - No more chunks to receive.")
                 break
 
             yield chunk
 
-        self.transfer_complete.set()
-        print(f"⇓ {self.uid} ⇓ - Transfer complete, notified all waiting tasks.")
+        await self.set_event("transfer_complete")
+        print(f"▼ {self.uid} - Transfer complete, notified all waiting tasks.")
+        await self.cleanup()
 
-        print(f"Removing transfer '{self.uid}' from store.")
-        store = self._load_store()
-        del store[self.uid]
+    async def cleanup(self):
+        keys_to_delete = await self.store.keys(f'transfer:{self.uid}:*')
+        if keys_to_delete:
+            print(f"Removing {len(keys_to_delete)} keys for '{self.uid}' from store.")
+            await self.store.delete(*keys_to_delete)
