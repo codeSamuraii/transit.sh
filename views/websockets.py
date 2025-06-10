@@ -1,6 +1,6 @@
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect
 
-from lib.transfer import FileTransfer
+from lib.transfer import File, FileTransfer
 
 
 router = APIRouter()
@@ -20,7 +20,7 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     header = await websocket.receive_json()
 
     try:
-        file = FileTransfer.get_file_from_header(header)
+        file = File.get_file_from_header(header)
         print(f"{uid} △ File info: name={file.name}, size={file.size}, type={file.content_type}")
     except KeyError as e:
         print(f"{uid} △ Invalid header: {header}, error: {e}")
@@ -29,7 +29,7 @@ async def websocket_upload(websocket: WebSocket, uid: str):
 
     transfer = await FileTransfer.create(uid, file)
 
-    await transfer.wait_for_event('client_connected', timeout=300)
+    await transfer.wait_for_event('client_connected')
     print(f"{uid} △ Client connected, signaling to start sending chunks")
     await websocket.send_text("Go for file chunks")
 

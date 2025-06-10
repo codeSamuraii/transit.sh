@@ -4,7 +4,7 @@ from fastapi import Request, APIRouter
 from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
 
-from lib.transfer import FileTransfer
+from lib.transfer import File, FileTransfer
 
 router = APIRouter()
 
@@ -21,7 +21,7 @@ async def http_upload(request: Request, uid: str, filename: Optional[str] = None
         raise HTTPException(status_code=400, detail="Filename is required as path parameter or query parameter")
 
     print(f"{uid} △ HTTP upload request: {filename}" )
-    file = FileTransfer.get_file_from_request(request)
+    file = File.get_file_from_request(request)
 
     if file.size > 100*1024**2:
         raise HTTPException(status_code=413, detail="File too large. 100MiB maximum for HTTP.")
