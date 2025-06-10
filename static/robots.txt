@@ -1,4 +1,4 @@
-user-agent: *
+User-agent: *
 Allow: /$
 Allow: /robots.txt
 Disallow: /

@@ -78,7 +78,7 @@ class Store:
     async def set_event(self, event_name: str, expiry: float = 300.0) -> None:
         """Set an event flag for this transfer."""
         event_key = self.key(event_name)
-        await self.redis.set(event_key, '1', nx=True, ex=int(expiry))
+        await self.redis.set(event_key, '1', ex=int(expiry))
 
     async def wait_for_event(self, event_name: str, timeout: float = 300.0) -> None:
         """Wait for an event to be set for this transfer."""

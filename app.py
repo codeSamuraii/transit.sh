@@ -1,10 +1,11 @@
+import os
 import uvloop
 import asyncio
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-import os
 import logging
 import redis.asyncio as redis
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import sentry_sdk
 
@@ -37,6 +38,10 @@ logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 @app.get("/health")
 async def get_health():
     return {"status": "ok"}
+
+@app.get("/robots.txt")
+async def get_robots_txt():
+    return FileResponse("static/robots.txt", content_disposition_type="inline")
 
 @app.on_event("shutdown")
 async def shutdown_event():
