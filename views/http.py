@@ -15,7 +15,7 @@ async def http_upload(request: Request, uid: str, filename: Optional[str] = None
     Upload a file via HTTP PUT.
 
     The filename can be provided as a path parameter: `/{uid}/{filename}` (automatically used by `curl --upload-file`)
-    File size is limited to 100 MiB for HTTP transfers.
+    File size is limited to 10 MiB for HTTP transfers.
     """
     if not filename:
         raise HTTPException(status_code=400, detail="Filename is required as path parameter or query parameter")
@@ -23,16 +23,14 @@ async def http_upload(request: Request, uid: str, filename: Optional[str] = None
     print(f"{uid} △ HTTP upload request: {filename}" )
     file = File.get_file_from_request(request)
 
-    if file.size > 100*1024**2:
-        raise HTTPException(status_code=413, detail="File too large. 100MiB maximum for HTTP.")
+    if file.size > 10*1024*1024:
+        raise HTTPException(status_code=413, detail="File too large. 10MiB maximum for HTTP.")
 
     transfer = await FileTransfer.create(uid, file)
+    await transfer.wait_for_client_connected()
 
-    print(f"{uid} △ Waiting for client to connect...")
-    await transfer.wait_for_event('client_connected', timeout=300)
-
-    print(f"{uid} △ Client connected. Uploading...")
-    await transfer.collect_upload(request.stream())
+    print(f"{uid} △ Uploading...")
+    await transfer.collect_upload(request.stream(), protocol='http')
 
     print(f"{uid} △ Upload complete.")
     return PlainTextResponse("Transfer complete.", status_code=200)
@@ -82,8 +80,7 @@ async def http_download(uid: str, request: Request):
         html_preview = get_preview_html(file_name=file_name, file_size=file_size, file_type=file_type)
         return HTMLResponse(content=html_preview, status_code=200)
 
-    print(f"{uid} ▼ Notifying client is connected.")
-    await transfer.set_event('client_connected')
+    await transfer.set_client_connected()
 
     print(f"{uid} ▼ Starting download of {file_name} ({file_size} bytes, type: {file_type})")
     data_stream = StreamingResponse(

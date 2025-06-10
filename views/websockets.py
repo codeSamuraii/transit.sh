@@ -29,12 +29,12 @@ async def websocket_upload(websocket: WebSocket, uid: str):
 
     transfer = await FileTransfer.create(uid, file)
 
-    await transfer.wait_for_event('client_connected')
-    print(f"{uid} △ Client connected, signaling to start sending chunks")
+    await transfer.wait_for_client_connected()
     await websocket.send_text("Go for file chunks")
 
-    print(f"{uid} △ Starting upload...")
+    print(f"{uid} △ Uploading...")
     await transfer.collect_upload(websocket.iter_bytes())
+    await websocket.close()
 
 
 @router.websocket("/receive/{uid}")
@@ -65,15 +65,10 @@ async def websocket_download(websocket: WebSocket, uid: str):
             return
 
     print(f"{uid} ▼ Notifying client is connected.")
-    await transfer.set_event('client_connected')
+    await transfer.set_client_connected()
 
     print(f"{uid} ▼ Starting download...")
-    try:
-        async for chunk in transfer.supply_download():
-            await websocket.send_bytes(chunk)
-        await websocket.send_bytes(b'')
-        print(f"{uid} ▼ Download complete.")
-    except WebSocketDisconnect:
-        print(f"{uid} ▼ Client disconnected during download")
-    except Exception as e:
-        print(f"{uid} ▼ Error during download: {str(e)}")
+    async for chunk in transfer.supply_download(protocol='ws'):
+        await websocket.send_bytes(chunk)
+    await websocket.send_bytes(b'')
+    await websocket.close()

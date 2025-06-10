@@ -48,17 +48,17 @@
 
             <section class="section">
                 <div class="code-section">
-                    <h3>Send using cURL</h3>
-                    <p>Use <code>curl</code> from your terminal for quick transfers. <strong>100MiB maximum</strong> for HTTP transfers.</p>
+                    <h3>Using cURL</h3>
+                    <p>Use  <code>curl</code> to transfer from your terminal. However, HTTP transfers are limited to <strong>10MiB maximum</strong>.</p>
 
                     <div class="code-block">
                         <code><span class="code-comment"># Send</span>
-curl -T <span class="code-variable">&lt;file&gt;</span> https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span>/</code>
+curl -T <span class="code-variable">&lt;file&gt;</span> https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span>/  <span class="code-comment"><strong># The slash is important!</strong></span></code>
                     </div>
 
                     <div class="code-block">
                         <code><span class="code-comment"># Receive</span>
-curl -JLO https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span></code>
+curl -JLO https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span>        <span class="code-comment"><strong># No slash here</strong></span></code>
                     </div>
 
                     <div class="code-block">
@@ -84,7 +84,7 @@ curl -JLO https://transit.sh/<span class="code-string">music-for-dad</span></cod
 
         <footer class="footer">
             <p>Free for non-commercial applications.<br>
-            <a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">© codesamuraii</a></p>
+            <a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">© Rémi Héneault</a></p>
         </footer>
     </div>
 

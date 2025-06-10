@@ -49,7 +49,7 @@ class Store:
                 break
 
         if keys_to_delete:
-            print(f"Cleaning up {len(keys_to_delete)} keys for transfer {self.transfer_id}...")
+            print(f"{self.transfer_id} - {len(keys_to_delete)} keys cleaned up.")
             return await self.redis.delete(*keys_to_delete)
         return 0
 
