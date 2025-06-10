@@ -1,18 +1,23 @@
 import uvloop
 import asyncio
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
 import os
 import logging
 import redis.asyncio as redis
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+import sentry_sdk
 
 from views import http_router, ws_router
 
 
 # Initialize Redis client
 redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+if sentry_dsn := os.getenv("SENTRY_DSN", ""):
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        send_default_pii=True,
+    )
 
 
 app = FastAPI(
