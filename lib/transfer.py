@@ -122,6 +122,7 @@ class FileTransfer:
                 yield chunk
 
             await self.set_transfer_complete()
+            await asyncio.sleep(2)  # Allow time for completion notification
 
         except asyncio.TimeoutError as e:
             print(f"{self.uid} ▼ Timeout fetching download data: {e}")

@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect
 
 from lib.transfer import File, FileTransfer
@@ -34,7 +35,7 @@ async def websocket_upload(websocket: WebSocket, uid: str):
 
     print(f"{uid} △ Uploading...")
     await transfer.collect_upload(websocket.iter_bytes())
-    await websocket.close()
+    await asyncio.sleep(2)
 
 
 @router.websocket("/receive/{uid}")
@@ -71,4 +72,3 @@ async def websocket_download(websocket: WebSocket, uid: str):
     async for chunk in transfer.supply_download(protocol='ws'):
         await websocket.send_bytes(chunk)
     await websocket.send_bytes(b'')
-    await websocket.close()
