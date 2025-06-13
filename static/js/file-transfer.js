@@ -68,7 +68,22 @@ function handleFiles(files, elements) {
 
 // Transfer ID generation
 function generateTransferId() {
-    return Math.random().toString(36).substring(2, 10);
+    const adjectives = [
+        'misty', 'empty', 'dry', 'dark', 'icy', 'quiet', 'white', 'cool', 'dawn', 'wispy', 'blue','cold', 'damp', 'green',
+        'long', 'late', 'bold', 'muddy', 'old', 'red', 'rough', 'still', 'small', 'shy', 'wild', 'black', 'young', 'holy'
+    ];
+    const nouns = [
+        'river', 'breeze', 'moon', 'rain', 'wind', 'sea', 'snow', 'lake', 'sunset', 'pine', 'shadow', 'leaf', 'dawn',
+        'forest', 'hill', 'cloud', 'meadow', 'sun', 'glade', 'bird', 'brook', 'bush', 'dew', 'dust', 'field', 'fire',
+        'flower', 'grass', 'haze', 'night', 'pond', 'sound', 'sky', 'surf', 'violet', 'water', 'wave', 'wood', 'dream'
+    ];
+
+    // Generate a random transfer ID in the format: adjective-noun-number
+    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const noun = nouns[Math.floor(Math.random() * nouns.length)];
+    const num = Math.floor(Math.random() * 10);
+
+    return `${adj}-${noun}-${num}`;
 }
 
 // UI updates

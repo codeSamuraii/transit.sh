@@ -1,10 +1,12 @@
 import asyncio
+import logging
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect
 
-from lib.transfer import File, FileTransfer
-
+from lib.logging import get_logger
+from lib.transfer import FileMetadata, FileTransfer
 
 router = APIRouter()
+log = get_logger('websockets')
 
 
 @router.websocket("/send/{uid}")
@@ -16,15 +18,15 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     Then, the client must wait for the signal before sending file chunks.
     """
     await websocket.accept()
-    print(f"{uid} △ Websocket upload request." )
+    log.info(f"△ Websocket upload request." )
 
     header = await websocket.receive_json()
 
     try:
-        file = File.get_file_from_header(header)
-        print(f"{uid} △ File info: name={file.name}, size={file.size}, type={file.content_type}")
+        file = FileMetadata.get_file_from_json(header)
+        log.info(f"△ File info: name={file.name}, size={file.size}, type={file.content_type}")
     except KeyError as e:
-        print(f"{uid} △ Invalid header: {header}, error: {e}")
+        log.warning(f"△ Invalid header: {header}, error: {e}")
         await websocket.send_text(f"Error: Invalid header - {str(e)}")
         return
 
@@ -33,7 +35,7 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     await transfer.wait_for_client_connected()
     await websocket.send_text("Go for file chunks")
 
-    print(f"{uid} △ Uploading...")
+    transfer.info("△ Uploading...")
     await transfer.collect_upload(websocket.iter_bytes())
     await asyncio.sleep(2)
 
@@ -41,34 +43,34 @@ async def websocket_upload(websocket: WebSocket, uid: str):
 @router.websocket("/receive/{uid}")
 async def websocket_download(websocket: WebSocket, uid: str):
     await websocket.accept()
-    print(f"{uid} ▼ Websocket download request." )
+    log.info("▼ Websocket download request." )
 
     try:
         transfer = await FileTransfer.get(uid)
     except KeyError:
-        print(f"{uid} ▼ File not found.")
+        log.warning("▼ File not found.")
         await websocket.send_text("File not found")
         return
 
     file_name, file_size, file_type = transfer.get_file_info()
-    print(f"{uid} ▼ File info: name={file_name}, size={file_size}, type={file_type}")
+    transfer.info(f"▼ File info: name={file_name}, size={file_size}, type={file_type}")
     await websocket.send_json({'file_name': file_name, 'file_size': file_size, 'file_type': file_type})
 
-    print(f"{uid} ▼ Waiting for go-ahead...")
+    transfer.info("▼ Waiting for go-ahead...")
     while True:
         try:
             msg = await websocket.receive_text()
             if msg == "Go for file chunks":
                 break
-            print(f"{uid} ▼ Unexpected message: {msg}")
+            transfer.warning(f"▼ Unexpected message: {msg}")
         except WebSocketDisconnect:
-            print(f"{uid} ▼ Client disconnected while waiting for go-ahead")
+            transfer.warning("▼ Client disconnected while waiting for go-ahead")
             return
 
-    print(f"{uid} ▼ Notifying client is connected.")
+    transfer.info("▼ Notifying client is connected.")
     await transfer.set_client_connected()
 
-    print(f"{uid} ▼ Starting download...")
+    transfer.info("▼ Starting download...")
     async for chunk in transfer.supply_download(protocol='ws'):
         await websocket.send_bytes(chunk)
     await websocket.send_bytes(b'')

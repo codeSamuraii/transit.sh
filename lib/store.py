@@ -29,6 +29,7 @@ class Store:
         return cls._redis
 
     def key(self, name: str):
+        """Get the Redis key for the provided name with this transfer."""
         return f'transfer:{self.transfer_id}:{name}'
 
     async def cleanup(self) -> int:
@@ -49,7 +50,6 @@ class Store:
                 break
 
         if keys_to_delete:
-            print(f"{self.transfer_id} - {len(keys_to_delete)} keys cleaned up.")
             return await self.redis.delete(*keys_to_delete)
         return 0
 
@@ -66,7 +66,7 @@ class Store:
 
     async def get_from_queue(self, timeout: float = 30.0) -> bytes:
         """Get data from the transfer queue with timeout."""
-        result = await self.redis.brpop(self._k_queue, timeout=timeout)
+        result = await self.redis.brpop([self._k_queue], timeout=timeout)
         if not result:
             raise asyncio.TimeoutError("Timeout waiting for data")
 

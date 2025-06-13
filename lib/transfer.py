@@ -1,15 +1,16 @@
 import json
 import asyncio
-import logging
 from dataclasses import dataclass, asdict
-from typing import AsyncIterator, Literal, Optional, LiteralString
+from starlette.datastructures import Headers
+from typing import AsyncIterator, Literal, Optional, Self
 from fastapi import HTTPException, Request, WebSocketException, status
 
 from .store import Store
+from .logging import get_logger
 
 
 @dataclass(frozen=True)
-class File:
+class FileMetadata:
     size: int
     name: Optional[str] = None
     content_type: Optional[str] = None
@@ -18,19 +19,19 @@ class File:
         return json.dumps(asdict(self))
 
     @classmethod
-    def from_json(cls, data: str) -> 'File':
+    def from_json(cls, data: str) -> Self:
         return cls(**json.loads(data))
 
     @classmethod
-    def get_file_from_request(cls, request: Request) -> 'File':
+    def get_from_http_headers(cls, headers: Headers, filename: str) -> Self:
         return cls(
-            name=request.path_params.get('filename'),
-            size=int(request.headers.get('content-length') or 1),
-            content_type=request.headers.get('content-type')
+            name=filename,
+            size=int(headers.get('content-length') or '0'),
+            content_type=headers.get('content-type')
         )
 
     @classmethod
-    def get_file_from_header(cls, header: dict) -> 'File':
+    def get_file_from_json(cls, header: dict) -> Self:
         return cls(
             name=header['file_name'].encode('ascii', 'replace').decode(),
             size=int(header['file_size']),
@@ -40,13 +41,15 @@ class File:
 
 class FileTransfer:
 
-    def __init__(self, uid: str, file: File):
-        self.uid = uid
+    def __init__(self, uid: str, file: FileMetadata):
+        self.uid = str(uid).strip().encode('ascii', 'ignore').decode()
         self.file = file
         self.store = Store(uid)
+        log = get_logger(f'{self.uid}')
+        self.debug, self.info, self.warning, self.error = log.debug, log.info, log.warning, log.error
 
     @classmethod
-    async def create(cls, uid: str, file: File):
+    async def create(cls, uid: str, file: FileMetadata):
         transfer = cls(uid, file)
         await transfer.store.set_metadata(file.to_json())
         return transfer
@@ -58,11 +61,11 @@ class FileTransfer:
         if not metadata_json:
             raise KeyError(f"FileTransfer '{uid}' not found.")
 
-        file = File.from_json(metadata_json)
+        file = FileMetadata.from_json(metadata_json)
         return cls(uid, file)
 
     @staticmethod
-    def timeout_exception(protocol: Literal['http'] | Literal['ws'] = 'http'):
+    def timeout_exception(protocol: Literal['http', 'ws'] = 'http'):
         detail = "Transfer timed out, other peer likely disconnected."
         if protocol == 'ws':
             return WebSocketException(status.WS_1006_ABNORMAL_CLOSURE, detail)
@@ -76,29 +79,29 @@ class FileTransfer:
         await self.store.wait_for_event(event_name, timeout)
 
     async def set_transfer_complete(self):
-        print(f"{self.uid} ▼ Notifying transfer is complete...")
+        self.debug(f"▼ Notifying transfer is complete...")
         await self.store.set_event('transfer_complete')
 
     async def set_client_connected(self):
-        print(f"{self.uid} ▼ Notifying client is connected...")
+        self.debug(f"▼ Notifying client is connected...")
         await self.store.set_event('client_connected')
 
     async def wait_for_transfer_complete(self):
-        print(f"{self.uid} △ Waiting for transfer to complete...")
+        self.info(f"△ Waiting for transfer to complete...")
         await self.wait_for_event('transfer_complete')
-        print(f"{self.uid} △ Received completion confirmation.")
+        self.info(f"△ Received completion confirmation.")
 
     async def wait_for_client_connected(self):
-        print(f"{self.uid} △ Waiting for client to connect...")
+        self.info(f"△ Waiting for client to connect...")
         await self.wait_for_event('client_connected')
-        print(f"{self.uid} △ Received client connected notification.")
+        self.info(f"△ Received client connected notification.")
 
-    async def collect_upload(self, stream: AsyncIterator[bytes], protocol: str = 'ws'):
+    async def collect_upload(self, stream: AsyncIterator[bytes], protocol: Literal['http', 'ws'] = 'ws'):
         try:
             while True:
                 chunk = await anext(stream, None)
                 if not chunk:
-                    print(f"{self.uid} △ Received empty chunk, ending upload...")
+                    self.info(f"△ Finishing upload...")
                     break
                 await self.store.put_in_queue(chunk)
 
@@ -106,18 +109,18 @@ class FileTransfer:
             await self.wait_for_transfer_complete()
 
         except asyncio.TimeoutError as e:
-            print(f"{self.uid} △ Timeout collecting uploading data: {e}")
+            self.warning(f"△ Timeout collecting uploading data: {e}")
             raise self.timeout_exception(protocol)
 
         finally:
-            await self.store.cleanup()
+            await self.cleanup()
 
-    async def supply_download(self, protocol: str = 'http'):
+    async def supply_download(self, protocol: Literal['http', 'ws'] = 'http'):
         try:
             while True:
                 chunk = await self.store.get_from_queue()
                 if not chunk:
-                    print(f"{self.uid} ▼ No more chunks to receive.")
+                    self.debug(f"▼ No more chunks to receive.")
                     break
                 yield chunk
 
@@ -125,7 +128,7 @@ class FileTransfer:
             await asyncio.sleep(2)  # Allow time for completion notification
 
         except asyncio.TimeoutError as e:
-            print(f"{self.uid} ▼ Timeout fetching download data: {e}")
+            self.warning(f"▼ Timeout fetching download data: {e}")
             raise self.timeout_exception(protocol)
 
         finally:
@@ -133,6 +136,9 @@ class FileTransfer:
 
     async def cleanup(self):
         try:
-            await asyncio.wait_for(self.store.cleanup(), timeout=30.0)
+            num_keys = await asyncio.wait_for(self.store.cleanup(), timeout=30.0)
         except asyncio.TimeoutError:
+            self.warning(f"Cleanup for transfer timed out.")
             pass
+
+        self.info(f"- Cleanup complete, removed {num_keys} keys.")

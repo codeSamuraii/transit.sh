@@ -237,6 +237,16 @@ body {
     margin-bottom: var(--space-lg);
 }
 
+code.inline-highlight {
+    background-color: rgba(31, 111, 235, 0.1);
+    color: var(--text-primary);
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(31, 111, 235, 0.3);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+}
+
 .code-section h3 {
     font-size: 1.1rem;
     margin-bottom: var(--space-md);

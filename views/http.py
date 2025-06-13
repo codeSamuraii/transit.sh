@@ -1,48 +1,46 @@
 import pathlib
+import logging
 from typing import Optional
 from fastapi import Request, APIRouter
 from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
 
-from lib.transfer import File, FileTransfer
+from lib.logging import get_logger
+from lib.transfer import FileMetadata, FileTransfer
 
 router = APIRouter()
+log = get_logger('http')
 
 
-@router.put("/{uid}/{filename}")
-async def http_upload(request: Request, uid: str, filename: Optional[str] = None):
+@router.put("/{uid}/{filename:path}")
+async def http_upload(request: Request, uid: str, filename: str):
     """
     Upload a file via HTTP PUT.
 
     The filename can be provided as a path parameter: `/{uid}/{filename}` (automatically used by `curl --upload-file`)
-    File size is limited to 10 MiB for HTTP transfers.
+    File size is limited to 100 MiB for HTTP transfers.
     """
-    if not filename:
-        raise HTTPException(status_code=400, detail="Filename is required as path parameter or query parameter")
+    log.info(f"△ HTTP upload request: {filename}" )
+    file = FileMetadata.get_from_http_headers(request.headers, filename)
 
-    print(f"{uid} △ HTTP upload request: {filename}" )
-    file = File.get_file_from_request(request)
-
-    if file.size > 10*1024*1024:
-        raise HTTPException(status_code=413, detail="File too large. 10MiB maximum for HTTP.")
+    if file.size > 100*1024*1024:
+        raise HTTPException(status_code=413, detail="File too large. 100MiB maximum for HTTP.")
 
     transfer = await FileTransfer.create(uid, file)
     await transfer.wait_for_client_connected()
 
-    print(f"{uid} △ Uploading...")
+    transfer.info("△ Uploading...")
     await transfer.collect_upload(request.stream(), protocol='http')
 
-    print(f"{uid} △ Upload complete.")
+    transfer.info("△ Upload complete.")
     return PlainTextResponse("Transfer complete.", status_code=200)
 
 
 # Link prefetch protection
-
 PREFETCHER_USER_AGENTS = {
     'whatsapp', 'facebookexternalhit', 'twitterbot', 'slackbot-linkexpanding',
     'discordbot', 'googlebot', 'bingbot', 'linkedinbot', 'pinterestbot', 'telegrambot',
 }
-
 def get_preview_html(**kwargs):
     try:
         template_path = pathlib.Path(__file__).parent.parent / 'static' / 'preview.html'
@@ -55,19 +53,20 @@ def get_preview_html(**kwargs):
 
 
 @router.get("/{uid}")
-async def http_download(uid: str, request: Request):
+@router.get("/{uid}/")
+async def http_download(request: Request, uid: str):
     """
     Download a file via HTTP GET.
 
     The uid is used to identify the file to download.
     File chunks are forwarded from sender to receiver via streaming.
     """
-    if '.' in uid or '/' in uid:
+    if '.' in uid:
         raise HTTPException(status_code=400, detail="Invalid transfer ID. Must not contain '.' or '/'.")
 
     try:
         transfer = await FileTransfer.get(uid)
-        print(f"{uid} ▼ HTTP download request." )
+        transfer.info("▼ HTTP download request.")
     except KeyError:
         raise HTTPException(status_code=404, detail="Transfer not found.")
 
@@ -76,13 +75,13 @@ async def http_download(uid: str, request: Request):
     is_prefetcher = any(prefetch_ua in user_agent for prefetch_ua in PREFETCHER_USER_AGENTS)
 
     if is_prefetcher:
-        print(f"{uid} ▼ Prefetch request detected from User-Agent: {request.headers.get('user-agent')}. Serving metadata.")
+        transfer.info(f"▼ Prefetch request detected from User-Agent: {request.headers.get('user-agent')}. Serving metadata.")
         html_preview = get_preview_html(file_name=file_name, file_size=file_size, file_type=file_type)
         return HTMLResponse(content=html_preview, status_code=200)
 
     await transfer.set_client_connected()
 
-    print(f"{uid} ▼ Starting download of {file_name} ({file_size} bytes, type: {file_type})")
+    transfer.info(f"▼ Starting download of {file_name} ({file_size} bytes, type: {file_type})")
     data_stream = StreamingResponse(
         transfer.supply_download(),
         status_code=200,

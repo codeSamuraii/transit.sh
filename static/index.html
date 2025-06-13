@@ -49,18 +49,19 @@
             <section class="section">
                 <div class="code-section">
                     <h3>Using cURL</h3>
-                    <p>Use  <code>curl</code> to transfer from your terminal. However, HTTP transfers are limited to <strong>10MiB maximum</strong>.</p>
+                    <p>You can use the <code class="inline-highlight">curl</code> command to transfer from your terminal. 100 MiB maximum.</p>
 
                     <div class="code-block">
                         <code><span class="code-comment"># Send</span>
-curl -T <span class="code-variable">&lt;file&gt;</span> https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span>/  <span class="code-comment"><strong># The slash is important!</strong></span></code>
+curl -T <span class="code-variable">&lt;file&gt;</span> https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span><strong>/</strong> --expect100-timeout 300</code>
                     </div>
+                    <p><small>Make sure to include the last <code>/</code> and the <code>--expect100-timeout</code> flag, they are important.</small></p>
 
                     <div class="code-block">
                         <code><span class="code-comment"># Receive</span>
-curl -JLO https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span>        <span class="code-comment"><strong># No slash here</strong></span></code>
+curl -JLO https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span></code>
                     </div>
-
+                    <p><small>The <code>-JLO</code> flags means: "follow redirects and create a file with server-provided name".</small></p>
                     <div class="code-block">
                         <code><span class="code-comment"># Example</span>
 curl -T <span class="code-variable">/music/song.mp3</span> https://transit.sh/<span class="code-string">music-for-dad</span>/
@@ -83,8 +84,8 @@ curl -JLO https://transit.sh/<span class="code-string">music-for-dad</span></cod
         </main>
 
         <footer class="footer">
-            <p>Free for non-commercial applications.<br>
-            <a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">© Rémi Héneault</a></p>
+            <p><a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">Free for non-commercial applications.</a><br>
+            <strong></strong> <a href="https://github.com/codeSamuraii/">Rémi Héneault</a></p>
         </footer>
     </div>
 
