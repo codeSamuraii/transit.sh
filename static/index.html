@@ -59,13 +59,13 @@ curl -T <span class="code-variable">&lt;file&gt;</span> https://transit.sh/<span
 
                     <div class="code-block">
                         <code><span class="code-comment"># Receive</span>
-curl -JLO https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span></code>
+curl -JLO https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</span>/</code>
                     </div>
-                    <p><small>The <code>-JLO</code> flags means: "follow redirects and create a file with server-provided name".</small></p>
+                    <p><small>The <code>-JLO</code> flags downloads the file with its original name and follows redirects.</small></p>
                     <div class="code-block">
                         <code><span class="code-comment"># Example</span>
 curl -T <span class="code-variable">/music/song.mp3</span> https://transit.sh/<span class="code-string">music-for-dad</span>/
-curl -JLO https://transit.sh/<span class="code-string">music-for-dad</span></code>
+curl -JLO https://transit.sh/<span class="code-string">music-for-dad</span>/</code>
                     </div>
                 </div>
             </section>
@@ -76,7 +76,7 @@ curl -JLO https://transit.sh/<span class="code-string">music-for-dad</span></cod
                     <ul>
                         <li>Files are <strong>not stored</strong> by the service at any point and only exist in memory one chunk at a time.</li>
                         <li>You can use one method to upload and another to download (e.g., upload via browser, download via cURL).</li>
-                        <li>For large files, the browser upload method using WebSockets is recommended as HTTP transfers may have limitations.</li>
+                        <li>For large files, the browser upload method using WebSockets is recommended as HTTP transfers have limitations.</li>
                         <li>This service is hosted as a proof-of-concept with no guarantees. See the <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> for more details.</li>
                     </ul>
                 </div>
@@ -84,8 +84,8 @@ curl -JLO https://transit.sh/<span class="code-string">music-for-dad</span></cod
         </main>
 
         <footer class="footer">
-            <p><a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">Free for non-commercial applications.</a><br>
-            <strong></strong> <a href="https://github.com/codeSamuraii/">Rémi Héneault</a></p>
+            <p><a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">Free for non-commercial applications</a><br>
+            <strong>©</strong> <a href="https://github.com/codeSamuraii/">Rémi Héneault</a></p>
         </footer>
     </div>
 
