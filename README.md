@@ -98,12 +98,14 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 ## License
 
-This project is licensed under a custom license. See the [LICENSE](LICENSE) file for details.
+This project is licensed under a custom license for now. See the [LICENSE](LICENSE) file for details.
 Briefly:
 - Free for non-commercial use.
 - Forks are allowed under the same license with attribution.
 - Forks under a different license require the author's authorization.
 - Commercial use is prohibited.
+
+I want to use a more standard open-source license in the future, such as AGPLv3 or MPL 2.0, but for now, please refer to the [LICENSE](LICENSE) file for the current terms.
 
 ## Acknowledgements
 *   Inspired by [transfer.sh](https://github.com/dutchcoders/transfer.sh) and [JustBeamIt](https://www.justbeamit.com/)
