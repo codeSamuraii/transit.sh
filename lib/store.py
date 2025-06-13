@@ -36,8 +36,9 @@ class Store:
         """Remove all keys related to this transfer."""
         if self._cleanup:
             return 0
-        else:
-            self._cleanup = True
+
+        self._cleanup = True
+        await asyncio.sleep(4)  # Allow time for event notification
 
         pattern = self.key('*')
         keys_to_delete = set()

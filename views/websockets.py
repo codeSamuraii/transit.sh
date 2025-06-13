@@ -1,6 +1,5 @@
 import asyncio
-import logging
-from fastapi import WebSocket, APIRouter, WebSocketDisconnect
+from fastapi import WebSocket, APIRouter, WebSocketDisconnect, WebSocketException
 
 from lib.logging import get_logger
 from lib.transfer import FileMetadata, FileTransfer
@@ -32,11 +31,17 @@ async def websocket_upload(websocket: WebSocket, uid: str):
 
     transfer = await FileTransfer.create(uid, file)
 
-    await transfer.wait_for_client_connected()
+    try:
+        await transfer.wait_for_client_connected()
+    except asyncio.TimeoutError:
+        log.warning("△ Client did not connect in time.")
+        raise WebSocketException(1006, "Client did not connect in time.")
+
     await websocket.send_text("Go for file chunks")
 
     transfer.info("△ Uploading...")
     await transfer.collect_upload(websocket.iter_bytes())
+    transfer.info("△ Upload complete.")
 
 
 @router.websocket("/receive/{uid}")

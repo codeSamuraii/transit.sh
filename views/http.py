@@ -1,5 +1,5 @@
 import pathlib
-import logging
+import asyncio
 from typing import Optional
 from fastapi import Request, APIRouter
 from fastapi.exceptions import HTTPException
@@ -27,7 +27,12 @@ async def http_upload(request: Request, uid: str, filename: str):
         raise HTTPException(status_code=413, detail="File too large. 100MiB maximum for HTTP.")
 
     transfer = await FileTransfer.create(uid, file)
-    await transfer.wait_for_client_connected()
+
+    try:
+        await transfer.wait_for_client_connected()
+    except asyncio.TimeoutError:
+        log.warning("△ Client did not connect in time.")
+        raise HTTPException(status_code=408, detail="Client did not connect in time.")
 
     transfer.info("△ Uploading...")
     await transfer.collect_upload(request.stream(), protocol='http')

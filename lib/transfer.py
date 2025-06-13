@@ -124,7 +124,6 @@ class FileTransfer:
                 yield chunk
 
             await self.set_transfer_complete()
-            await asyncio.sleep(2)  # Allow time for completion notification
 
         except asyncio.TimeoutError as e:
             self.warning(f"▼ Timeout fetching download data: {e}")
@@ -137,7 +136,7 @@ class FileTransfer:
         try:
             num_keys = await asyncio.wait_for(self.store.cleanup(), timeout=30.0)
         except asyncio.TimeoutError:
-            self.warning(f"Cleanup for transfer timed out.")
+            self.warning(f"- Cleanup timed out.")
             pass
 
         self.info(f"- Cleanup complete, removed {num_keys} keys.")
