@@ -98,8 +98,7 @@ class FileTransfer:
 
     async def collect_upload(self, stream: AsyncIterator[bytes], protocol: Literal['http', 'ws'] = 'ws'):
         try:
-            while True:
-                chunk = await anext(stream, None)
+            async for chunk in stream:
                 if not chunk:
                     self.info(f"△ Finishing upload...")
                     break

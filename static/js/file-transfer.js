@@ -91,13 +91,15 @@ function showProgress(elements, message = 'Connecting...') {
     const { uploadProgress, statusText } = elements;
     uploadProgress.style.display = 'block';
     statusText.textContent = message;
+    uploadProgress.setAttribute('aria-valuenow', '0'); // Add ARIA update
 }
 
 function updateProgress(elements, progress) {
-    const { progressBarFill, progressText } = elements;
+    const { progressBarFill, progressText, uploadProgress } = elements; // Add uploadProgress
     const percentage = Math.min(100, Math.round(progress * 100));
     progressBarFill.style.width = `${percentage}%`;
     progressText.textContent = `${percentage}%`;
+    uploadProgress.setAttribute('aria-valuenow', percentage); // Add ARIA update
 
     if (percentage === 100) {
         elements.statusText.textContent = 'Completing transfer...';
