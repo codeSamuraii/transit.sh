@@ -78,4 +78,4 @@ async def websocket_download(websocket: WebSocket, uid: str):
     async for chunk in transfer.supply_download(protocol='ws'):
         await websocket.send_bytes(chunk)
     await websocket.send_bytes(b'')
-    await websocket.send_bytes(b'')
+    transfer.info("▼ Download complete.")

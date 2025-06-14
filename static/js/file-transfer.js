@@ -81,7 +81,7 @@ function generateTransferId() {
     // Generate a random transfer ID in the format: adjective-noun-number
     const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
     const noun = nouns[Math.floor(Math.random() * nouns.length)];
-    const num = Math.floor(Math.random() * 10);
+    const num = Math.floor(Math.random() * 100);
 
     return `${adj}-${noun}-${num}`;
 }
