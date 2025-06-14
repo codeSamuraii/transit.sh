@@ -1,4 +1,5 @@
 import asyncio
+from json import JSONDecodeError
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect, WebSocketException
 
 from lib.logging import get_logger
@@ -24,9 +25,9 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     try:
         file = FileMetadata.get_file_from_json(header)
         log.info(f"△ File info: name={file.name}, size={file.size}, type={file.content_type}")
-    except KeyError as e:
-        log.warning(f"△ Invalid header: {header}, error: {e}")
-        await websocket.send_text(f"Error: Invalid header - {str(e)}")
+    except (KeyError, JSONDecodeError) as e:
+        log.warning(f"△ Invalid header: {e.__class__.__name__}\n{str(e)}")
+        await websocket.send_text(f"Error: invalid header")
         return
 
     transfer = await FileTransfer.create(uid, file)

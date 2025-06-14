@@ -66,12 +66,12 @@ async def http_download(request: Request, uid: str):
     The uid is used to identify the file to download.
     File chunks are forwarded from sender to receiver via streaming.
     """
+    log.info(f"▼ HTTP download for: {uid}")
     if '.' in uid:
         raise HTTPException(status_code=400, detail="Invalid transfer ID. Must not contain '.' or '/'.")
 
     try:
         transfer = await FileTransfer.get(uid)
-        transfer.info("▼ HTTP download request.")
     except KeyError:
         raise HTTPException(status_code=404, detail="Transfer not found.")
 

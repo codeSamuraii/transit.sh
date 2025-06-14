@@ -2,8 +2,9 @@ import json
 import asyncio
 from dataclasses import dataclass, asdict
 from starlette.datastructures import Headers
+from starlette.responses import ClientDisconnect
 from typing import AsyncIterator, Literal, Optional, Self
-from fastapi import HTTPException, Request, WebSocketException, status
+from fastapi import HTTPException, WebSocketException, status
 
 from .store import Store
 from .logging import get_logger
@@ -65,8 +66,7 @@ class FileTransfer:
         return cls(uid, file)
 
     @staticmethod
-    def timeout_exception(protocol: Literal['http', 'ws'] = 'http'):
-        detail = "Transfer timed out, other peer likely disconnected."
+    def get_exception(detail: str, protocol: Literal['http', 'ws'] = 'http'):
         if protocol == 'ws':
             return WebSocketException(status.WS_1006_ABNORMAL_CLOSURE, detail)
         else:
@@ -112,8 +112,11 @@ class FileTransfer:
             await self.wait_for_transfer_complete()
 
         except asyncio.TimeoutError as e:
-            self.warning(f"△ Timeout collecting uploading data: {e}")
-            raise self.timeout_exception(protocol)
+            self.warning(f"△ Timeout during upload: {e}")
+            raise self.get_exception("Transfer timed out, other peer likely disconnected.", protocol)
+        except (ClientDisconnect, RuntimeError) as e:
+            self.warning(f"△ Client disconnected: {e}")
+            raise self.get_exception("Client disconnected.", protocol)
 
         finally:
             await self.cleanup()
@@ -131,8 +134,11 @@ class FileTransfer:
             self.info(f"▼ Download complete.")
 
         except asyncio.TimeoutError as e:
-            self.warning(f"▼ Timeout fetching download data: {e}")
-            raise self.timeout_exception(protocol)
+            self.warning(f"▼ Timeout during download: {e}")
+            raise self.get_exception("Transfer timed out, other peer likely disconnected.", protocol)
+        except (ClientDisconnect, RuntimeError) as e:
+            self.warning(f"△ Client disconnected: {e}")
+            raise self.get_exception("Client disconnected.", protocol)
 
         finally:
             await self.cleanup()
