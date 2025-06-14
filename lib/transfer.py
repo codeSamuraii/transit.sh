@@ -42,9 +42,9 @@ class FileMetadata:
 class FileTransfer:
 
     def __init__(self, uid: str, file: FileMetadata):
-        self.uid = str(uid).strip().encode('ascii', 'ignore').decode()
+        self.uid = self._format_uid(uid)
         self.file = file
-        self.store = Store(uid)
+        self.store = Store(self.uid)
         log = get_logger(f'{self.uid}')
         self.debug, self.info, self.warning, self.error = log.debug, log.info, log.warning, log.error
 
@@ -71,6 +71,10 @@ class FileTransfer:
             return WebSocketException(status.WS_1006_ABNORMAL_CLOSURE, detail)
         else:
             return HTTPException(status.HTTP_408_REQUEST_TIMEOUT, detail)
+
+    @staticmethod
+    def _format_uid(uid: str):
+        return str(uid).strip().encode('ascii', 'ignore').decode()
 
     def get_file_info(self):
         return self.file.name, self.file.size, self.file.content_type
@@ -124,6 +128,7 @@ class FileTransfer:
                 yield chunk
 
             await self.set_transfer_complete()
+            self.info(f"▼ Download complete.")
 
         except asyncio.TimeoutError as e:
             self.warning(f"▼ Timeout fetching download data: {e}")

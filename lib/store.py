@@ -38,7 +38,7 @@ class Store:
             return 0
 
         self._cleanup = True
-        await asyncio.sleep(4)  # Allow time for event notification
+        await asyncio.sleep(2)  # Allow time for event notification
 
         pattern = self.key('*')
         keys_to_delete = set()
@@ -79,17 +79,35 @@ class Store:
     async def set_event(self, event_name: str, expiry: float = 300.0) -> None:
         """Set an event flag for this transfer."""
         event_key = self.key(event_name)
-        await self.redis.set(event_key, '1', ex=int(expiry))
+        event_marker_key = self.key(f"{event_name}:fired")
+
+        await self.redis.set(event_marker_key, "1", ex=int(expiry))
+        await self.redis.publish(event_key, '1')
 
     async def wait_for_event(self, event_name: str, timeout: float = 300.0) -> None:
         """Wait for an event to be set for this transfer."""
         event_key = self.key(event_name)
+        event_marker_key = self.key(f"{event_name}:fired")
+        if await self.redis.exists(event_marker_key):
+            return
 
-        async def _wait():
-            while await self.redis.get(event_key) is None:
-                await asyncio.sleep(0.5)
+        pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
+        await pubsub.subscribe(event_key)
 
-        await asyncio.wait_for(_wait(), timeout=timeout)
+        try:
+            async def _listen_for_message():
+                if await self.redis.exists(event_marker_key):
+                    return
+
+                async for message in pubsub.listen():
+                    if message and message['type'] == 'message':
+                        return
+
+            await asyncio.wait_for(_listen_for_message(), timeout=timeout)
+
+        finally:
+            await pubsub.unsubscribe(event_key)
+            await pubsub.close()
 
     ## Metadata operations ##
 
