@@ -46,7 +46,7 @@ class FileTransfer:
         self.uid = self._format_uid(uid)
         self.file = file
         self.store = Store(self.uid)
-        log = get_logger(f'{self.uid}')
+        log = get_logger(self.uid)
         self.debug, self.info, self.warning, self.error = log.debug, log.info, log.warning, log.error
 
     @classmethod
@@ -82,23 +82,24 @@ class FileTransfer:
     async def wait_for_event(self, event_name: str, timeout: float = 300.0):
         await self.store.wait_for_event(event_name, timeout)
 
-    async def set_transfer_complete(self):
-        self.debug(f"▼ Notifying transfer is complete...")
-        await self.store.set_event('transfer_complete')
+    async def set_download_complete(self):
+        self.debug(f"▼ Notifying download is complete...")
+        await self.store.set_event('download_complete')
+        self.info(f"▼ Download complete.")
 
     async def set_client_connected(self):
         self.debug(f"▼ Notifying client is connected...")
         await self.store.set_event('client_connected')
 
-    async def wait_for_transfer_complete(self):
-        self.info(f"△ Waiting for transfer to complete...")
-        await self.wait_for_event('transfer_complete')
-        self.info(f"△ Received completion confirmation.")
+    async def wait_for_download_to_complete(self):
+        self.info(f"△ Waiting for download to complete...")
+        await self.wait_for_event('download_complete')
+        self.debug(f"△ Received completion confirmation.")
 
     async def wait_for_client_connected(self):
         self.info(f"△ Waiting for client to connect...")
         await self.wait_for_event('client_connected')
-        self.info(f"△ Received client connected notification.")
+        self.debug(f"△ Received client connected notification.")
 
     async def collect_upload(self, stream: AsyncIterator[bytes], protocol: Literal['http', 'ws'] = 'ws'):
         try:
@@ -109,13 +110,13 @@ class FileTransfer:
                 await self.store.put_in_queue(chunk)
 
             await self.store.put_in_queue(b'')
-            await self.wait_for_transfer_complete()
+            await self.wait_for_download_to_complete()
 
         except asyncio.TimeoutError as e:
-            self.warning(f"△ Timeout during upload: {e}")
+            self.warning(f"△ Timeout during upload", exc_info=e, stack_info=True, stacklevel=4)
             raise self.get_exception("Transfer timed out, other peer likely disconnected.", protocol)
         except (ClientDisconnect, RuntimeError) as e:
-            self.warning(f"△ Client disconnected: {e}")
+            self.warning(f"△ Client disconnected", exc_info=e, stack_info=True, stacklevel=4)
             raise self.get_exception("Client disconnected.", protocol)
 
         finally:
@@ -130,18 +131,19 @@ class FileTransfer:
                     break
                 yield chunk
 
-            await self.set_transfer_complete()
-            self.info(f"▼ Download complete.")
+            # await self.set_transfer_complete()
+            # self.info(f"▼ Download complete.")
 
         except asyncio.TimeoutError as e:
-            self.warning(f"▼ Timeout during download: {e}")
+            self.warning(f"▼ Timeout during download", exc_info=e, stack_info=True, stacklevel=4)
+            await self.cleanup()
             raise self.get_exception("Transfer timed out, other peer likely disconnected.", protocol)
+
         except (ClientDisconnect, RuntimeError) as e:
-            self.warning(f"△ Client disconnected: {e}")
+            self.warning(f"▼ Client disconnected", exc_info=e, stack_info=True, stacklevel=4)
+            await self.cleanup()
             raise self.get_exception("Client disconnected.", protocol)
 
-        finally:
-            await self.cleanup()
 
     async def cleanup(self):
         try:

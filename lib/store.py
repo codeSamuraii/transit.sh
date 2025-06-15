@@ -1,7 +1,8 @@
 import asyncio
 import redis.asyncio as redis
-from typing import Optional
+from typing import Optional, Coroutine
 
+from lib.logging import get_logger
 
 
 class Store:
@@ -15,6 +16,7 @@ class Store:
     def __init__(self, transfer_id: str):
         self.transfer_id = transfer_id
         self.redis = self.get_redis()
+        self.log = get_logger(transfer_id)
 
         self._k_queue = self.key('queue')
         self._k_meta = self.key('metadata')
@@ -79,35 +81,51 @@ class Store:
     async def set_event(self, event_name: str, expiry: float = 300.0) -> None:
         """Set an event flag for this transfer."""
         event_key = self.key(event_name)
-        event_marker_key = self.key(f"{event_name}:fired")
+        event_marker_key = self.key(f"{event_name}:marker")
 
-        await self.redis.set(event_marker_key, "1", ex=int(expiry))
+        await self.redis.set(event_marker_key, '1', ex=int(expiry))
         await self.redis.publish(event_key, '1')
 
     async def wait_for_event(self, event_name: str, timeout: float = 300.0) -> None:
         """Wait for an event to be set for this transfer."""
         event_key = self.key(event_name)
-        event_marker_key = self.key(f"{event_name}:fired")
-        if await self.redis.exists(event_marker_key):
-            return
-
+        event_marker_key = self.key(f"{event_name}:marker")
         pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
         await pubsub.subscribe(event_key)
 
-        try:
-            async def _listen_for_message():
-                if await self.redis.exists(event_marker_key):
+        async def _poll_marker():
+            while not await self.redis.exists(event_marker_key):
+                await asyncio.sleep(1)
+            self.log.debug(f">> POLL: Event '{event_name}' fired.")
+
+        async def _listen_for_message():
+            async for message in pubsub.listen():
+                if message and message['type'] == 'message':
+                    self.log.debug(f">> SUB : Received message for event '{event_name}'.")
                     return
 
-                async for message in pubsub.listen():
-                    if message and message['type'] == 'message':
-                        return
+        poll_marker = asyncio.wait_for(_poll_marker(), timeout=timeout)
+        listen_for_message = asyncio.wait_for(_listen_for_message(), timeout=timeout)
 
-            await asyncio.wait_for(_listen_for_message(), timeout=timeout)
+        try:
+            tasks = [
+                asyncio.create_task(poll_marker, name=f'poll_marker_{event_name}_{self.transfer_id}'),
+                asyncio.create_task(listen_for_message, name=f'listen_for_message_{event_name}_{self.transfer_id}')
+            ]
+            _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+
+        except asyncio.TimeoutError:
+            self.log.error(f"Timeout waiting for event '{event_name}' after {timeout} seconds.")
+            for task in tasks:
+                task.cancel()
+            raise
 
         finally:
             await pubsub.unsubscribe(event_key)
             await pubsub.close()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     ## Metadata operations ##
 

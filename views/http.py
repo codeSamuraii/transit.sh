@@ -2,6 +2,7 @@ import pathlib
 import asyncio
 from typing import Optional
 from fastapi import Request, APIRouter
+from starlette.background import BackgroundTask
 from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
 
@@ -85,12 +86,14 @@ async def http_download(request: Request, uid: str):
         return HTMLResponse(content=html_preview, status_code=200)
 
     await transfer.set_client_connected()
+    transfer_complete = BackgroundTask(transfer.set_download_complete)
 
     transfer.info(f"▼ Starting download of {file_name} ({file_size} bytes, type: {file_type})")
     data_stream = StreamingResponse(
-        transfer.supply_download(),
+        transfer.supply_download(protocol='http'),
         status_code=200,
         media_type=file_type,
+        background=transfer_complete,
         headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
     )
 

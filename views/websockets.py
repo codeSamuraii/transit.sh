@@ -24,7 +24,7 @@ async def websocket_upload(websocket: WebSocket, uid: str):
 
     try:
         file = FileMetadata.get_file_from_json(header)
-        log.info(f"△ File info: name={file.name}, size={file.size}, type={file.content_type}")
+        log.debug(f"△ File: name={file.name}, size={file.size}, type={file.content_type}")
     except (KeyError, JSONDecodeError) as e:
         log.warning(f"△ Invalid header: {e.__class__.__name__}\n{str(e)}")
         await websocket.send_text(f"Error: invalid header")
@@ -41,7 +41,7 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     await websocket.send_text("Go for file chunks")
 
     transfer.info("△ Uploading...")
-    await transfer.collect_upload(websocket.iter_bytes())
+    await transfer.collect_upload(websocket.iter_bytes(), protocol='ws')
     transfer.info("△ Upload complete.")
 
 
@@ -58,7 +58,7 @@ async def websocket_download(websocket: WebSocket, uid: str):
         return
 
     file_name, file_size, file_type = transfer.get_file_info()
-    transfer.info(f"▼ File info: name={file_name}, size={file_size}, type={file_type}")
+    transfer.debug(f"▼ File: name={file_name}, size={file_size}, type={file_type}")
     await websocket.send_json({'file_name': file_name, 'file_size': file_size, 'file_type': file_type})
 
     transfer.info("▼ Waiting for go-ahead...")
