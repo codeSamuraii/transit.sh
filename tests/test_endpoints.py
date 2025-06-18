@@ -68,23 +68,22 @@ class TestWebSocketUpload:
         }
 
         with patch.object(FileTransfer, 'wait_for_client_connected', new_callable=AsyncMock):
-            with patch.object(FileTransfer, 'wait_for_download_to_complete', new_callable=AsyncMock):
-                with TestClient(app).websocket_connect(f"/send/{uid}") as websocket:
-                    # Send file metadata header
-                    websocket.send_json(file_metadata)
+            with TestClient(app).websocket_connect(f"/send/{uid}") as websocket:
+                # Send file metadata header
+                websocket.send_json(file_metadata)
 
-                    # Wait for go-ahead message
-                    message = websocket.receive_text()
-                    assert message == "Go for file chunks"
+                # Wait for go-ahead message
+                message = websocket.receive_text()
+                assert message == "Go for file chunks"
 
-                    # Send file chunks
-                    chunk_size = 1024
-                    for i in range(0, len(file_content), chunk_size):
-                        chunk = file_content[i:i + chunk_size]
-                        websocket.send_bytes(chunk)
+                # Send file chunks
+                chunk_size = 1024
+                for i in range(0, len(file_content), chunk_size):
+                    chunk = file_content[i:i + chunk_size]
+                    websocket.send_bytes(chunk)
 
-                    # Send empty chunk to signal end
-                    websocket.send_bytes(b'')
+                # Send empty chunk to signal end
+                websocket.send_bytes(b'')
 
     @pytest.mark.asyncio
     async def test_websocket_upload_invalid_header(self, mock_redis):
@@ -160,8 +159,7 @@ class TestHTTPDownload:
         mock_redis.brpop.side_effect = [(uid, chunk) for chunk in chunks]
 
         # Mock the background task completion
-        with patch.object(FileTransfer, 'set_download_complete', new_callable=AsyncMock):
-            response = test_client.get(f"/{uid}")
+        response = test_client.get(f"/{uid}")
 
         assert response.status_code == 200
         assert response.content == file_content
@@ -237,12 +235,11 @@ class TestHTTPUpload:
         }
 
         with patch.object(FileTransfer, 'wait_for_client_connected', new_callable=AsyncMock):
-            with patch.object(FileTransfer, 'wait_for_download_to_complete', new_callable=AsyncMock):
-                response = test_client.put(
-                    f"/{uid}/{filename}",
-                    content=file_content,
-                    headers=headers
-                )
+            response = test_client.put(
+                f"/{uid}/{filename}",
+                content=file_content,
+                headers=headers
+            )
 
         assert response.status_code == 200
         assert "Transfer complete" in response.text
@@ -338,28 +335,26 @@ class TestIntegration:
 
         def upload_file():
             with patch.object(FileTransfer, 'wait_for_client_connected', new_callable=AsyncMock):
-                with patch.object(FileTransfer, 'wait_for_download_to_complete', new_callable=AsyncMock):
-                    with TestClient(app).websocket_connect(f"/send/{uid}") as websocket:
-                        websocket.send_json(file_metadata)
+                with TestClient(app).websocket_connect(f"/send/{uid}") as websocket:
+                    websocket.send_json(file_metadata)
 
-                        message = websocket.receive_text()
-                        assert message == "Go for file chunks"
+                    message = websocket.receive_text()
+                    assert message == "Go for file chunks"
 
-                        # Send file in chunks
-                        chunk_size = 1024
-                        for i in range(0, len(file_content), chunk_size):
-                            chunk = file_content[i:i + chunk_size]
-                            websocket.send_bytes(chunk)
+                    # Send file in chunks
+                    chunk_size = 1024
+                    for i in range(0, len(file_content), chunk_size):
+                        chunk = file_content[i:i + chunk_size]
+                        websocket.send_bytes(chunk)
 
-                        websocket.send_bytes(b'')  # End marker
+                    websocket.send_bytes(b'')  # End marker
 
         # Step 2: Download via HTTP
         def download_file():
             client = TestClient(app)
-            with patch.object(FileTransfer, 'set_download_complete', new_callable=AsyncMock):
-                response = client.get(f"/{uid}")
-                assert response.status_code == 200
-                return response.content
+            response = client.get(f"/{uid}")
+            assert response.status_code == 200
+            return response.content
 
         # Execute upload (synchronous since TestClient is sync)
         upload_file()

@@ -1,6 +1,6 @@
 import asyncio
 from json import JSONDecodeError
-from fastapi import WebSocket, APIRouter, WebSocketDisconnect, WebSocketException
+from fastapi import WebSocket, APIRouter, WebSocketDisconnect, WebSocketException, BackgroundTasks
 
 from lib.logging import get_logger
 from lib.transfer import FileMetadata, FileTransfer
@@ -47,11 +47,10 @@ async def websocket_upload(websocket: WebSocket, uid: str):
 
     transfer.info("△ Uploading...")
     await transfer.collect_upload(websocket.iter_bytes(), protocol='ws')
-    transfer.info("△ Upload complete.")
 
 
 @router.websocket("/receive/{uid}")
-async def websocket_download(websocket: WebSocket, uid: str):
+async def websocket_download(background_tasks: BackgroundTasks, websocket: WebSocket, uid: str):
     await websocket.accept()
     log.info("▼ Websocket download request." )
 
@@ -79,9 +78,9 @@ async def websocket_download(websocket: WebSocket, uid: str):
 
     transfer.info("▼ Notifying client is connected.")
     await transfer.set_client_connected()
+    background_tasks.add_task(transfer.cleanup)
 
     transfer.info("▼ Starting download...")
     async for chunk in transfer.supply_download(protocol='ws'):
         await websocket.send_bytes(chunk)
     await websocket.send_bytes(b'')
-    transfer.info("▼ Download complete.")

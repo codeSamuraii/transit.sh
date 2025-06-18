@@ -1,6 +1,6 @@
-import pathlib
+import string
 import asyncio
-from typing import Optional
+import pathlib
 from fastapi import Request, APIRouter
 from starlette.background import BackgroundTask
 from fastapi.exceptions import HTTPException
@@ -13,7 +13,7 @@ router = APIRouter()
 log = get_logger('http')
 
 
-@router.put("/{uid}/{filename:path}")
+@router.put("/{uid}/{filename}")
 async def http_upload(request: Request, uid: str, filename: str):
     """
     Upload a file via HTTP PUT.
@@ -67,9 +67,9 @@ async def http_download(request: Request, uid: str):
     The uid is used to identify the file to download.
     File chunks are forwarded from sender to receiver via streaming.
     """
+    if any(char not in string.ascii_letters + string.digits + '-' for char in uid):
+        raise HTTPException(status_code=400, detail="Invalid transfer ID. Must only contain alphanumeric characters and hyphens.")
     log.info(f"▼ HTTP download for: {uid}")
-    if '.' in uid:
-        raise HTTPException(status_code=400, detail="Invalid transfer ID. Must not contain '.' or '/'.")
 
     try:
         transfer = await FileTransfer.get(uid)
@@ -86,15 +86,15 @@ async def http_download(request: Request, uid: str):
         return HTMLResponse(content=html_preview, status_code=200)
 
     await transfer.set_client_connected()
-    transfer_complete = BackgroundTask(transfer.set_download_complete)
+    # cleanup = BackgroundTask(transfer.cleanup)
 
     transfer.info(f"▼ Starting download of {file_name} ({file_size} bytes, type: {file_type})")
     data_stream = StreamingResponse(
         transfer.supply_download(protocol='http'),
         status_code=200,
         media_type=file_type,
-        background=transfer_complete,
-        headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
+        background=BackgroundTask(transfer.cleanup),
+        headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size), "Transfer-Encoding": "chunked"}
     )
 
     return data_stream

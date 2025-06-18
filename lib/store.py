@@ -1,3 +1,4 @@
+import random
 import asyncio
 import redis.asyncio as redis
 from typing import Optional, Coroutine
@@ -20,6 +21,7 @@ class Store:
 
         self._k_queue = self.key('queue')
         self._k_meta = self.key('metadata')
+        self._k_cleanup = f'cleanup:{transfer_id}'
         self._cleanup = False
 
     @classmethod
@@ -34,13 +36,18 @@ class Store:
         """Get the Redis key for the provided name with this transfer."""
         return f'transfer:{self.transfer_id}:{name}'
 
+    async def cleanup_started(self) -> bool:
+        """Check if cleanup has been initiated for this transfer."""
+        challenge = random.randbytes(8)
+        await self.redis.set(self._k_cleanup, challenge, ex=60, nx=True)
+        if await self.redis.get(self._k_cleanup) == challenge:
+            return False
+        return True
+
     async def cleanup(self) -> int:
         """Remove all keys related to this transfer."""
-        if self._cleanup:
+        if await self.cleanup_started():
             return 0
-
-        self._cleanup = True
-        await asyncio.sleep(2)  # Allow time for event notification
 
         pattern = self.key('*')
         keys_to_delete = set()
@@ -54,7 +61,6 @@ class Store:
 
         if keys_to_delete:
             return await self.redis.delete(*keys_to_delete)
-        return 0
 
     ## Queue operations ##
 
@@ -108,10 +114,10 @@ class Store:
         listen_for_message = asyncio.wait_for(_listen_for_message(), timeout=timeout)
 
         try:
-            tasks = [
+            tasks = {
                 asyncio.create_task(poll_marker, name=f'poll_marker_{event_name}_{self.transfer_id}'),
                 asyncio.create_task(listen_for_message, name=f'listen_for_message_{event_name}_{self.transfer_id}')
-            ]
+            }
             _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
                 task.cancel()

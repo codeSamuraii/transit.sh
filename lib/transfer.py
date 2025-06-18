@@ -82,19 +82,9 @@ class FileTransfer:
     async def wait_for_event(self, event_name: str, timeout: float = 300.0):
         await self.store.wait_for_event(event_name, timeout)
 
-    async def set_download_complete(self):
-        self.debug(f"▼ Notifying download is complete...")
-        await self.store.set_event('download_complete')
-        self.info(f"▼ Download complete.")
-
     async def set_client_connected(self):
-        self.debug(f"▼ Notifying client is connected...")
+        self.debug(f"▼ Notifying sender that receiver is connected...")
         await self.store.set_event('client_connected')
-
-    async def wait_for_download_to_complete(self):
-        self.info(f"△ Waiting for download to complete...")
-        await self.wait_for_event('download_complete')
-        self.debug(f"△ Received completion confirmation.")
 
     async def wait_for_client_connected(self):
         self.info(f"△ Waiting for client to connect...")
@@ -102,48 +92,48 @@ class FileTransfer:
         self.debug(f"△ Received client connected notification.")
 
     async def collect_upload(self, stream: AsyncIterator[bytes], protocol: Literal['http', 'ws'] = 'ws'):
+        bytes_processed = 0
+
         try:
             async for chunk in stream:
-                if not chunk:
-                    self.info(f"△ Finishing upload...")
+                if not chunk and bytes_processed < self.file.size:
+                    raise ClientDisconnect("Received less data than expected.")
+                elif not chunk:
+                    self.debug(f"△ All chunks uploaded.")
+                    await self.store.put_in_queue(chunk)
                     break
+
                 await self.store.put_in_queue(chunk)
+                bytes_processed += len(chunk)
 
-            await self.store.put_in_queue(b'')
-            await self.wait_for_download_to_complete()
-
-        except asyncio.TimeoutError as e:
-            self.warning(f"△ Timeout during upload", exc_info=e, stack_info=True, stacklevel=4)
-            raise self.get_exception("Transfer timed out, other peer likely disconnected.", protocol)
-        except (ClientDisconnect, RuntimeError) as e:
-            self.warning(f"△ Client disconnected", exc_info=e, stack_info=True, stacklevel=4)
-            raise self.get_exception("Client disconnected.", protocol)
-
-        finally:
-            await self.cleanup()
+        except ClientDisconnect:
+            self.warning(f"△ Upload interrupted, notifying receiver...")
+            await self.store.put_in_queue(b'\xde\xad\xbe\xef')  # Special end marker
+        except asyncio.TimeoutError:
+            self.warning(f"△ Timeout during upload.")
 
     async def supply_download(self, protocol: Literal['http', 'ws'] = 'http'):
+        bytes_processed = 0
+
         try:
             while True:
                 chunk = await self.store.get_from_queue()
-                if not chunk:
-                    self.debug(f"▼ No more chunks to receive.")
+
+                if chunk == b'\xde\xad\xbe\xef':
+                    raise ClientDisconnect("Sender disconnected.")
+                elif not chunk and bytes_processed < self.file.size:
+                    raise ClientDisconnect("Received less data than expected.")
+                elif not chunk:
+                    self.debug(f"▼ All chunks received.")
                     break
+
+                bytes_processed += len(chunk)
                 yield chunk
 
-            # await self.set_transfer_complete()
-            # self.info(f"▼ Download complete.")
-
-        except asyncio.TimeoutError as e:
-            self.warning(f"▼ Timeout during download", exc_info=e, stack_info=True, stacklevel=4)
-            await self.cleanup()
-            raise self.get_exception("Transfer timed out, other peer likely disconnected.", protocol)
-
-        except (ClientDisconnect, RuntimeError) as e:
-            self.warning(f"▼ Client disconnected", exc_info=e, stack_info=True, stacklevel=4)
-            await self.cleanup()
-            raise self.get_exception("Client disconnected.", protocol)
-
+        except ClientDisconnect as e:
+            self.warning(f"▼ {str(e)}")
+        except asyncio.TimeoutError:
+            self.warning(f"▼ Timeout during download.")
 
     async def cleanup(self):
         try:
@@ -152,4 +142,5 @@ class FileTransfer:
             self.warning(f"- Cleanup timed out.")
             pass
 
-        self.info(f"- Cleanup complete, removed {num_keys} keys.")
+        if num_keys:
+            self.info(f"- Cleanup: {num_keys} keys removed.")

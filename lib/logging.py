@@ -30,10 +30,10 @@ class ColoredFormatter(logging.Formatter):
 
         # Name
         if 'uvicorn' in original_name:
-            name_color = self.COLORS['DEBUG'] + self.COLORS['ITALIC']   # Dim grey for uvicorn
+            name_color = self.COLORS['DEBUG'] + self.COLORS['ITALIC']   # Italic grey for uvicorn
             name_padded = f"{name_color}{'uvicorn':<17}{self.RESET}"
         elif original_name == 'websockets' or original_name == 'http':
-            name_color = self.COLORS['DEBUG'] + self.COLORS['BOLD']     # Bold grey for views
+            name_color = self.COLORS['ITALIC']                          # Italic white for views
             name_padded = f"{name_color}{original_name:<15}{self.RESET}"
         else:
             name_padded = f"{original_name:<15}"
