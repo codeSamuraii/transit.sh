@@ -12,3 +12,4 @@ TransitApp/
 .dockerignore
 Dockerfile
 fly.toml
+.pytest_cache/

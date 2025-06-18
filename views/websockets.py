@@ -20,7 +20,12 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     await websocket.accept()
     log.info(f"△ Websocket upload request." )
 
-    header = await websocket.receive_json()
+    try:
+        header = await websocket.receive_json()
+    except (JSONDecodeError, ValueError) as e:
+        log.warning(f"△ Invalid JSON header: {e.__class__.__name__}\n{str(e)}")
+        await websocket.send_text(f"Error: invalid header")
+        return
 
     try:
         file = FileMetadata.get_file_from_json(header)
