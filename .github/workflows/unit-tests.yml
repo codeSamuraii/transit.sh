@@ -21,7 +21,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio httpx websockets fastapi
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx
 
       - name: Run tests
         run: pytest tests/
