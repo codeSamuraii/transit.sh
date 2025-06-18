@@ -5,13 +5,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import pytest_asyncio
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocket
 
 from app import app
 from lib.transfer import FileMetadata, FileTransfer
-from lib.store import Store
 
 
 @pytest.fixture
@@ -364,8 +362,7 @@ class TestIntegration:
 
         # Execute download and verify content
         downloaded_content = download_file()
-        # Note: In a real scenario, we'd need to properly synchronize the queue
-        # For this test, we're mainly verifying the endpoints work correctly
+        assert downloaded_content == file_content, f"Downloaded content (size: {len(downloaded_content)}) does not match uploaded content (size: {len(file_content)})"
 
 
 if __name__ == "__main__":
