@@ -1,8 +1,7 @@
 import os
-import redis
 import logging
-import redis.asyncio
 import sentry_sdk
+import redis.asyncio
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,13 +21,13 @@ if sentry_dsn := os.getenv("SENTRY_DSN", ""):
 # Redis
 redis_client = redis.asyncio.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
 
+# FastAPI
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
     yield
     await redis_client.close()
 
-# FastAPI
 app = FastAPI(
     debug=True,
     title="Transit.sh",

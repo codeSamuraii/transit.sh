@@ -52,7 +52,7 @@ class TestWebSocketUpload:
         mock_redis.get.return_value = None
         mock_redis.lpush.return_value = None
         mock_redis.brpop.return_value = None
-        mock_redis.exists.return_value = True
+        mock_redis.exists.return_value = False
         mock_redis.publish.return_value = None
         mock_redis.scan.return_value = (0, [])
         mock_redis.delete.return_value = 0
@@ -92,7 +92,7 @@ class TestWebSocketUpload:
         mock_redis.set.return_value = None
         mock_redis.get.return_value = None
         mock_redis.lpush.return_value = None
-        mock_redis.exists.return_value = True
+        mock_redis.exists.return_value = False
         mock_redis.publish.return_value = None
         mock_redis.scan.return_value = (0, [])
         mock_redis.delete.return_value = 0
@@ -104,7 +104,7 @@ class TestWebSocketUpload:
             with TestClient(app).websocket_connect(f"/send/{uid}") as websocket:
                 # The error should be handled in the endpoint and return an error message
                 response = websocket.receive_text()
-                assert "Error: invalid header" in response
+                assert "Error: Cannot decode file metadata" in response
 
     @pytest.mark.asyncio
     async def test_websocket_upload_missing_file_fields(self, mock_redis):
@@ -115,7 +115,7 @@ class TestWebSocketUpload:
         mock_redis.set.return_value = None
         mock_redis.get.return_value = None
         mock_redis.lpush.return_value = None
-        mock_redis.exists.return_value = True
+        mock_redis.exists.return_value = False
         mock_redis.publish.return_value = None
         mock_redis.scan.return_value = (0, [])
         mock_redis.delete.return_value = 0
@@ -125,7 +125,7 @@ class TestWebSocketUpload:
             websocket.send_json({"file_name": "test.txt"})  # Missing size and type
 
             response = websocket.receive_text()
-            assert "Error: invalid header" in response
+            assert "Error: Cannot decode file metadata" in response
 
 
 class TestHTTPDownload:
@@ -149,11 +149,11 @@ class TestHTTPDownload:
         mock_redis.set.return_value = None
         mock_redis.publish.return_value = None
         mock_redis.scan.return_value = (0, [])
-        mock_redis.delete.return_value = 0
+        mock_redis.delete.return_value = 1
 
         # Mock queue operations to return file content
         chunks = [file_content[i:i+1024] for i in range(0, len(file_content), 1024)]
-        chunks.append(b'')  # End marker
+        chunks.append(b'\x00\xFF')  # End marker
         mock_redis.brpop.side_effect = [(uid, chunk) for chunk in chunks]
 
         # Mock the background task completion
@@ -221,7 +221,7 @@ class TestHTTPUpload:
         # Mock Redis operations
         mock_redis.set.return_value = None
         mock_redis.lpush.return_value = None
-        mock_redis.exists.return_value = True
+        mock_redis.exists.return_value = False
         mock_redis.publish.return_value = None
         mock_redis.scan.return_value = (0, [])
         mock_redis.delete.return_value = 0
@@ -249,7 +249,7 @@ class TestHTTPUpload:
         filename = "large_file.bin"
 
         # Simulate large file with content-length header
-        large_size = 101 * 1024 * 1024  # 101 MB
+        large_size = int(1.1 * 1024**3)  # 1.1 GiB
         headers = {"content-length": str(large_size)}
 
         response = test_client.put(
@@ -271,6 +271,7 @@ class TestHTTPUpload:
         # Mock Redis operations
         mock_redis.set.return_value = None
         mock_redis.llen.return_value = 0
+        mock_redis.exists.return_value = b'0'
 
         headers = {
             "content-length": str(len(file_content)),
@@ -319,7 +320,7 @@ class TestIntegration:
             content_type="text/plain"
         ).to_json()
         mock_redis.llen.return_value = 0
-        mock_redis.exists.return_value = True
+        mock_redis.exists.return_value = False
         mock_redis.publish.return_value = None
         mock_redis.scan.return_value = (0, [])
         mock_redis.delete.return_value = 0

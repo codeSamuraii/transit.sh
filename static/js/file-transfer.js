@@ -158,10 +158,15 @@ function handleWsOpen(ws, file, transferId, elements, abortController) {
 }
 
 function handleWsMessage(event, ws, file, elements, abortController) {
+    const { statusText } = elements;
     if (event.data === 'Go for file chunks') {
-        const { statusText } = elements;
         statusText.textContent = 'Peer connected. Transferring file...';
         sendFileInChunks(ws, file, elements, abortController);
+    } else if (event.data.startsWith('Error')) {
+        statusText.textContent = event.data;
+        statusText.style.color = 'var(--error)';
+        console.error('Server error:', event.data);
+        cleanupTransfer(abortController);
     } else {
         console.log('Unexpected message:', event.data);
     }

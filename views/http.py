@@ -1,13 +1,17 @@
+import json
 import string
 import asyncio
 import pathlib
+from typing import Type
 from fastapi import Request, APIRouter
 from starlette.background import BackgroundTask
 from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
 
 from lib.logging import get_logger
-from lib.transfer import FileMetadata, FileTransfer
+from lib.callbacks import raise_http_exception
+from lib.transfer import FileTransfer
+from lib.metadata import FileMetadata
 
 router = APIRouter()
 log = get_logger('http')
@@ -18,25 +22,45 @@ async def http_upload(request: Request, uid: str, filename: str):
     """
     Upload a file via HTTP PUT.
 
-    The filename can be provided as a path parameter: `/{uid}/{filename}` (automatically used by `curl --upload-file`)
-    File size is limited to 100 MiB for HTTP transfers.
+    The filename is provided as a path parameter after the transfer ID.
+    When using cURL with the `-T`/`--upload-file` option, the filename is automatically added if the URL ends with a slash.
+    File size is limited to 1GiB for HTTP transfers.
     """
-    log.info(f"△ HTTP upload request: {filename}" )
-    file = FileMetadata.get_from_http_headers(request.headers, filename)
+    if any(char not in string.ascii_letters + string.digits + '-' for char in uid):
+        raise HTTPException(status_code=400, detail="Invalid transfer ID. Must only contain alphanumeric characters and hyphens.")
+    log.debug("△ HTTP upload request.")
 
-    if file.size > 100*1024*1024:
-        raise HTTPException(status_code=413, detail="File too large. 100MiB maximum for HTTP.")
+    try:
+        file = FileMetadata.get_from_http_headers(request.headers, filename)
+    except KeyError as e:
+        log.error("△ Cannot decode file metadata from HTTP headers.", exc_info=e)
+        raise HTTPException(status_code=400, detail="Cannot decode file metadata from HTTP headers.")
 
-    transfer = await FileTransfer.create(uid, file)
+    if file.size > 1024**3:
+        raise HTTPException(status_code=413, detail="File too large. 1GiB maximum for HTTP.")
+
+    log.info(f"△ Creating transfer: {file}")
+
+    try:
+        transfer = await FileTransfer.create(uid, file)
+    except KeyError as e:
+        log.warning("△ Transfer ID is already used.")
+        raise HTTPException(status_code=409, detail="Transfer ID is already used.")
+    except (ValueError, TypeError) as e:
+        log.error("△ Invalid transfer ID or file metadata.", exc_info=e)
+        raise HTTPException(status_code=400, detail="Invalid transfer ID or file metadata.")
 
     try:
         await transfer.wait_for_client_connected()
     except asyncio.TimeoutError:
-        log.warning("△ Client did not connect in time.")
+        log.warning("△ Receiver did not connect in time.")
         raise HTTPException(status_code=408, detail="Client did not connect in time.")
 
-    transfer.info("△ Uploading...")
-    await transfer.collect_upload(request.stream(), protocol='http')
+    transfer.info("△ Starting upload...")
+    await transfer.collect_upload(
+        stream=request.stream(),
+        on_error=raise_http_exception(request),
+    )
 
     transfer.info("△ Upload complete.")
     return PlainTextResponse("Transfer complete.", status_code=200)
@@ -69,32 +93,35 @@ async def http_download(request: Request, uid: str):
     """
     if any(char not in string.ascii_letters + string.digits + '-' for char in uid):
         raise HTTPException(status_code=400, detail="Invalid transfer ID. Must only contain alphanumeric characters and hyphens.")
-    log.info(f"▼ HTTP download for: {uid}")
 
     try:
         transfer = await FileTransfer.get(uid)
     except KeyError:
         raise HTTPException(status_code=404, detail="Transfer not found.")
+    except (ValueError, TypeError) as e:
+        log.error("▼ Invalid transfer ID.", exc_info=e)
+        raise HTTPException(status_code=400, detail="Invalid transfer ID.")
+    else:
+        log.info(f"▼ HTTP download request for: {transfer.file}")
 
     file_name, file_size, file_type = transfer.get_file_info()
     user_agent = request.headers.get('user-agent', '').lower()
     is_prefetcher = any(prefetch_ua in user_agent for prefetch_ua in PREFETCHER_USER_AGENTS)
 
     if is_prefetcher:
-        transfer.info(f"▼ Prefetch request detected from User-Agent: {request.headers.get('user-agent')}. Serving metadata.")
+        log.info(f"▼ Prefetch request detected, serving preview. UA: ({request.headers.get('user-agent')})")
         html_preview = get_preview_html(file_name=file_name, file_size=file_size, file_type=file_type)
         return HTMLResponse(content=html_preview, status_code=200)
 
     await transfer.set_client_connected()
-    # cleanup = BackgroundTask(transfer.cleanup)
 
-    transfer.info(f"▼ Starting download of {file_name} ({file_size} bytes, type: {file_type})")
+    transfer.info("▼ Starting download...")
     data_stream = StreamingResponse(
-        transfer.supply_download(protocol='http'),
+        transfer.supply_download(on_error=raise_http_exception(request)),
         status_code=200,
         media_type=file_type,
-        background=BackgroundTask(transfer.cleanup),
-        headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size), "Transfer-Encoding": "chunked"}
+        background=BackgroundTask(transfer.finalize_download),
+        headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
     )
 
     return data_stream

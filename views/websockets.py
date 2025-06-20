@@ -1,8 +1,11 @@
 import asyncio
+import warnings
 from json import JSONDecodeError
-from fastapi import WebSocket, APIRouter, WebSocketDisconnect, WebSocketException, BackgroundTasks
+from starlette.background import BackgroundTask
+from fastapi import WebSocket, APIRouter, WebSocketDisconnect, BackgroundTasks
 
 from lib.logging import get_logger
+from lib.callbacks import send_error_and_close
 from lib.transfer import FileMetadata, FileTransfer
 
 router = APIRouter()
@@ -12,47 +15,61 @@ log = get_logger('websockets')
 @router.websocket("/send/{uid}")
 async def websocket_upload(websocket: WebSocket, uid: str):
     """
-    Upload a file via WebSockets.
+    Handles WebSockets file uploads such as those made via the form.
 
     A JSON header with file metadata should be sent first.
     Then, the client must wait for the signal before sending file chunks.
     """
     await websocket.accept()
-    log.info(f"△ Websocket upload request." )
+    log.debug(f"△ Websocket upload request.")
 
     try:
         header = await websocket.receive_json()
-    except (JSONDecodeError, ValueError) as e:
-        log.warning(f"△ Invalid JSON header: {e.__class__.__name__}\n{str(e)}")
-        await websocket.send_text(f"Error: invalid header")
+        file = FileMetadata.get_from_json(header)
+    except (JSONDecodeError, KeyError, RuntimeError) as e:
+        log.warning("△ Cannot decode file metadata JSON header.", exc_info=e)
+        await websocket.send_text("Error: Cannot decode file metadata JSON header.")
         return
+
+    log.info(f"△ Creating transfer: {file}")
 
     try:
-        file = FileMetadata.get_file_from_json(header)
-        log.debug(f"△ File: name={file.name}, size={file.size}, type={file.content_type}")
-    except (KeyError, JSONDecodeError) as e:
-        log.warning(f"△ Invalid header: {e.__class__.__name__}\n{str(e)}")
-        await websocket.send_text(f"Error: invalid header")
+        transfer = await FileTransfer.create(uid, file)
+    except KeyError as e:
+        log.warning("△ Transfer ID is already used.")
+        await websocket.send_text("Error: Transfer ID is already used.")
         return
-
-    transfer = await FileTransfer.create(uid, file)
+    except (ValueError, TypeError) as e:
+        log.error("△ Invalid transfer ID or file metadata.", exc_info=e)
+        await websocket.send_text("Error: Invalid transfer ID or file metadata.")
+        return
 
     try:
         await transfer.wait_for_client_connected()
     except asyncio.TimeoutError:
-        log.warning("△ Client did not connect in time.")
-        raise WebSocketException(1006, "Client did not connect in time.")
+        log.warning("△ Receiver did not connect in time.")
+        await websocket.send_text(f"Error: Receiver did not connect in time.")
+        return
 
+    transfer.info("△ Starting upload...")
     await websocket.send_text("Go for file chunks")
 
-    transfer.info("△ Uploading...")
-    await transfer.collect_upload(websocket.iter_bytes(), protocol='ws')
+    await transfer.collect_upload(
+        stream=websocket.iter_bytes(),
+        on_error=send_error_and_close(websocket),
+    )
+
+    transfer.info("△ Upload complete.")
 
 
+@warnings.deprecated(
+    "This endpoint is deprecated and will be removed soon. "
+    "It should not be used for reference, and it is disabled on the website."
+)
 @router.websocket("/receive/{uid}")
 async def websocket_download(background_tasks: BackgroundTasks, websocket: WebSocket, uid: str):
     await websocket.accept()
-    log.info("▼ Websocket download request." )
+    log.debug("▼ Websocket download request.")
 
     try:
         transfer = await FileTransfer.get(uid)
@@ -78,9 +95,10 @@ async def websocket_download(background_tasks: BackgroundTasks, websocket: WebSo
 
     transfer.info("▼ Notifying client is connected.")
     await transfer.set_client_connected()
-    background_tasks.add_task(transfer.cleanup)
+    background_tasks.add_task(transfer.finalize_download)
 
     transfer.info("▼ Starting download...")
-    async for chunk in transfer.supply_download(protocol='ws'):
+    async for chunk in transfer.supply_download(on_error=send_error_and_close(websocket)):
         await websocket.send_bytes(chunk)
     await websocket.send_bytes(b'')
+    transfer.info("▼ Download complete.")
