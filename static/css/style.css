@@ -83,6 +83,11 @@ body {
     position: relative;
 }
 
+.header h1 a {
+    color: inherit;
+    text-decoration: none;
+}
+
 .beta-badge {
     position: absolute;
     top: -8px;
@@ -262,6 +267,43 @@ body {
     background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
     width: 0%;
     transition: width 0.3s ease;
+}
+
+/* Download Page */
+.download-container {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: var(--space-lg);
+    text-align: center;
+}
+
+.file-info {
+    margin-bottom: var(--space-lg);
+}
+
+.file-info p {
+    margin-bottom: var(--space-sm);
+    color: var(--text-secondary);
+}
+
+.file-info strong {
+    color: var(--text-primary);
+}
+
+.button-download {
+    display: inline-block;
+    background-color: var(--accent-primary);
+    color: var(--text-primary);
+    padding: var(--space-sm) var(--space-lg);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    font-weight: 600;
+    transition: background-color 0.3s ease;
+}
+
+.button-download:hover {
+    background-color: #388bfd; /* A lighter shade of accent-primary */
 }
 
 /* Code Blocks */

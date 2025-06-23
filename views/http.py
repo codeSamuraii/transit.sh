@@ -82,6 +82,17 @@ def get_preview_html(**kwargs):
     return html_content.format(**kwargs)
 
 
+def get_download_html(**kwargs):
+    try:
+        template_path = pathlib.Path(__file__).parent.parent / 'static' / 'download.html'
+        with open(template_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+    except FileNotFoundError:
+        return PlainTextResponse("Download page template not found.", status_code=500)
+
+    return html_content.format(**kwargs)
+
+
 @router.get("/{uid}")
 @router.get("/{uid}/")
 async def http_download(request: Request, uid: str):
@@ -107,11 +118,22 @@ async def http_download(request: Request, uid: str):
     file_name, file_size, file_type = transfer.get_file_info()
     user_agent = request.headers.get('user-agent', '').lower()
     is_prefetcher = any(prefetch_ua in user_agent for prefetch_ua in PREFETCHER_USER_AGENTS)
+    is_curl = 'curl' in user_agent
 
     if is_prefetcher:
         log.info(f"▼ Prefetch request detected, serving preview. UA: ({request.headers.get('user-agent')})")
         html_preview = get_preview_html(file_name=file_name, file_size=file_size, file_type=file_type)
         return HTMLResponse(content=html_preview, status_code=200)
+
+    if not is_curl and not request.query_params.get('download'):
+        log.info(f"▼ Browser request detected, serving download page. UA: ({request.headers.get('user-agent')})")
+        download_url = f"/{uid}?download=true"
+        html_download = get_download_html(
+            file_name=file_name,
+            file_size=f"{file_size / (1024**2):.1f} MiB",
+            download_url=download_url
+        )
+        return HTMLResponse(content=html_download, status_code=200)
 
     await transfer.set_client_connected()
 

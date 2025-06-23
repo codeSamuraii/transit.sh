@@ -157,7 +157,7 @@ class TestHTTPDownload:
         mock_redis.brpop.side_effect = [(uid, chunk) for chunk in chunks]
 
         # Mock the background task completion
-        response = test_client.get(f"/{uid}")
+        response = test_client.get(f"/{uid}?download=true")
 
         assert response.status_code == 200
         assert response.content == file_content
@@ -351,7 +351,7 @@ class TestIntegration:
         # Step 2: Download via HTTP
         def download_file():
             client = TestClient(app)
-            response = client.get(f"/{uid}")
+            response = client.get(f"/{uid}?download=true")
             assert response.status_code == 200
             return response.content
 

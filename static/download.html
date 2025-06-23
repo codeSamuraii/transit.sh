@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Transit.sh - Download</title>
+    <meta name="description" content="Direct file transfer with no intermediary storage">
+    <meta property="og:title" content="Transit.sh">
+    <meta property="og:site_name" content="Transit.sh">
+    <meta property="og:description" content="Direct file transfer with no intermediary storage">
+    <link rel="icon" href="data:image/x-icon;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQEAYAAABPYyMiAAAABmJLR0T///////8JWPfcAAAACXBIWXMAAABIAAAASABGyWs+AAAAF0lEQVRIx2NgGAWjYBSMglEwCkbBSAcACBAAAeaR9cIAAAAASUVORK5CYII=">
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="https://browser.sentry-cdn.com/9.29.0/bundle.js" crossorigin="anonymous"></script>
+    <script>Sentry.onLoad(function() {{ Sentry.init({{dsn: "https://8c5e2a9a92b4f237e7faa20d6827aa37@o4509473999224832.ingest.us.sentry.io/4509493121712128"}}); }});</script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1><a href="/">Transit.sh</a></h1>
+            <p>Direct file transfer with no intermediary storage</p>
+        </header>
+
+        <main>
+            <section class="section">
+                <h2>Ready to download</h2>
+                <div class="download-container">
+                    <div class="file-info">
+                        <p><strong>File:</strong> {file_name}</p>
+                        <p><strong>Size:</strong> {file_size}</p>
+                    </div>
+                    <a href="{download_url}" class="button-download" id="download-button">Download File</a>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <p><a href="https://github.com/codeSamuraii/transit.sh/blob/main/LICENSE">Free for non-commercial applications</a><br>
+            <strong>©</strong> <a href="https://github.com/codeSamuraii/">Rémi Héneault</a></p>
+        </footer>
+    </div>
+</body>
+</html>

@@ -10,11 +10,13 @@
     <meta property="og:description" content="Direct file transfer with no intermediary storage">
     <link rel="icon" href="data:image/x-icon;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQEAYAAABPYyMiAAAABmJLR0T///////8JWPfcAAAACXBIWXMAAABIAAAASABGyWs+AAAAF0lEQVRIx2NgGAWjYBSMglEwCkbBSAcACBAAAeaR9cIAAAAASUVORK5CYII=">
     <link rel="stylesheet" href="/css/style.css">
+    <script src="https://browser.sentry-cdn.com/9.29.0/bundle.js" crossorigin="anonymous"></script>
+    <script>Sentry.onLoad(function() { Sentry.init({dsn: "https://8c5e2a9a92b4f237e7faa20d6827aa37@o4509473999224832.ingest.us.sentry.io/4509493121712128"}); });</script>
 </head>
 <body>
     <div class="container">
         <header class="header">
-            <h1>Transit.sh<span class="beta-badge">Beta</span></h1>
+            <h1><a href="/">Transit.sh</a><span class="beta-badge">Beta</span></h1>
             <p>Direct file transfer with no intermediary storage</p>
             <div class="beta-warning">
                 <strong>Notice:</strong> This service is in beta. If you encounter any bug, please report it <a href="https://github.com/codeSamuraii/transit.sh/issues">here</a>.<br>Sending files via mobile browsers is not supported yet.
@@ -80,6 +82,7 @@ curl -JLO https://transit.sh/<span class="code-string">music-for-dad</span>/</co
                         <li>Files are <strong>not stored</strong> by the service at any point and only exist in memory one chunk at a time.</li>
                         <li>You can use one method to upload and another to download (e.g., upload via browser, download via cURL).</li>
                         <li>For large files, the browser upload method using WebSockets is recommended as HTTP transfers have limitations.</li>
+                        <li>When visiting the download link with a web browser, a preview page will load with a button to start the download. You can skip this and access the download by adding <code class="inline-highlight">?download=true</code> at the end of the URL.</li>
                         <li>This service is hosted as a proof-of-concept with no guarantees. See the <a href="https://github.com/codeSamuraii/transit.sh/">open source project</a> for more details.</li>
                     </ul>
                 </div>
