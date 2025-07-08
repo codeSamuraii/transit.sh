@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-Custom-lightgrey.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/codeSamuraii/transit.sh.svg?style=social&label=Star&maxAge=2592000)](https://github.com/codeSamuraii/transit.sh/stargazers/)
 
-**Transit.sh** enables direct, peer-to-peer file transfers without intermediary storage. Files are streamed from sender to receiver in chunks, leveraging WebSockets and HTTP.
+**Transit.sh** enables direct, client-to-client file transfers without intermediary storage. Files are streamed from sender to receiver in real time. It leverages Redis, WebSockets and FastAPI for a modern, scalable architecture.
 
 > **Service Status:** The public instance at [https://transit.sh](https://transit.sh) is a proof-of-concept deployment. While functional, it comes with no service guarantees.
 
@@ -80,10 +80,10 @@ python -u app.py
 
 For deployment:
 ```bash
-python -m uvicorn app:app --host 0.0.0.0 --port 8080
+uvicorn app:app --host 0.0.0.0 --port 8080
 ```
 
-> **Note:** While the API works with multiple workers, it hasn't been fully tested in a multi-worker setup.
+> **Note:** The API supports multiple workers on different machines as long as the Redis cache is accessible on all of them, ideally with low latency. Accessing Redis over the internet would drastically reduce transfers speeds.
 
 ## Contributing
 
