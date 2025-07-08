@@ -94,7 +94,7 @@ class FileTransfer:
         except (ClientDisconnect, WebSocketDisconnect) as e:
             self.warning(f"△ Upload error: {str(e)}")
             await self.store.put_in_queue(self.DEAD_FLAG)
-            await on_error(str(e))
+            await on_error(e)
 
         except asyncio.TimeoutError as e:
             self.warning(f"△ Timeout during upload.")
@@ -123,7 +123,7 @@ class FileTransfer:
                 self.bytes_downloaded += len(chunk)
                 yield chunk
 
-        except (WebSocketDisconnect, ClientDisconnect) as e:
+        except (ClientDisconnect, WebSocketDisconnect) as e:
             self.warning(f"▼ Download error: {e}")
             await self.set_interrupted()
 
