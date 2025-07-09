@@ -21,7 +21,6 @@ async def lifespan(app: FastAPI):
     await app.state.redis.close()
 
 app = FastAPI(
-    debug=True,
     title="Transit.sh",
     description="Direct file transfer with no intermediary storage.",
     version="0.1.0",
