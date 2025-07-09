@@ -7,26 +7,18 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
-from views import http_router, ws_router
 from lib.logging import setup_logging
+from views import http_router, ws_router, misc_router
 
-
-# Sentry
-if sentry_dsn := os.getenv("SENTRY_DSN", ""):
-    sentry_sdk.init(
-        dsn=sentry_dsn,
-        send_default_pii=True,
-    )
-
-# Redis
-redis_client = redis.asyncio.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
 
 # FastAPI
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    sentry_sdk.init(release=os.getenv('DEPLOYMENT_ID', 'local'))
+    app.state.redis = redis.asyncio.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379'))
     yield
-    await redis_client.close()
+    await app.state.redis.close()
 
 app = FastAPI(
     debug=True,
@@ -37,22 +29,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Health checks
-class HealthCheckFilter(logging.Filter):
-    def filter(self, record):
-        return '"GET /health HTTP/1.1" 200' not in record.getMessage()
-logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
-
-@app.get("/health")
-async def get_health():
-    return {"status": "ok"}
-
-# Indexing
-@app.get("/robots.txt")
-async def get_robots_txt():
-    return FileResponse("static/robots.txt", content_disposition_type="inline")
-
 # App. routes
+app.include_router(misc_router)
 app.include_router(http_router)
 app.include_router(ws_router)
 

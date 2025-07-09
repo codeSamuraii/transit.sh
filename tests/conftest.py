@@ -17,6 +17,6 @@ def event_loop():
 async def setup_test_environment():
     """Set up test environment before each test."""
     # Mock Redis client to avoid needing actual Redis instance
-    with patch('app.redis_client') as mock_redis:
+    with patch('app.redis') as mock_redis:
         mock_redis.close = AsyncMock()
         yield mock_redis

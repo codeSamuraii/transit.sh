@@ -27,8 +27,8 @@ class Store:
     def get_redis(cls) -> redis.Redis:
         """Get the Redis client instance."""
         if cls.redis_client is None:
-            from app import redis_client
-            cls.redis_client = redis_client
+            from app import app
+            cls.redis_client = app.state.redis
         return cls.redis_client
 
     def key(self, name: str) -> str:

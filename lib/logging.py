@@ -60,26 +60,12 @@ class ColoredFormatter(logging.Formatter):
         return result + exc_text
 
 
-def get_logger(logger_name: str) -> logging.Logger:
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
-    formatter = ColoredFormatter(
-        fmt='{levelname} {name} {message}',
-        datefmt='%H:%M:%S',
-        style='{'
-    )
-    console_handler.setFormatter(formatter)
-
-    logger = logging.getLogger(logger_name)
-    logger.handlers = []
-    logger.setLevel(logging.DEBUG)
-    logger.addHandler(console_handler)
-    logger.propagate = False
-
-    return logger
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record):
+        return '"GET /health HTTP/1.1" 200' not in record.getMessage()
 
 
-def setup_logging():
+def setup_logging() -> logging.Logger:
     """Configure all loggers to use our custom ColoredFormatter."""
     formatter = ColoredFormatter(
         fmt='{levelname} {name} {message}',
@@ -104,5 +90,27 @@ def setup_logging():
         logger.propagate = False
         logger.addHandler(console_handler)
 
-    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
     logging.getLogger("uvicorn.error").setLevel(logging.INFO)
+    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+    logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
+
+    return root_logger
+
+
+def get_logger(logger_name: str) -> logging.Logger:
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    formatter = ColoredFormatter(
+        fmt='{levelname} {name} {message}',
+        datefmt='%H:%M:%S',
+        style='{'
+    )
+    console_handler.setFormatter(formatter)
+
+    logger = logging.getLogger(logger_name)
+    logger.handlers = []
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(console_handler)
+    logger.propagate = False
+
+    return logger
