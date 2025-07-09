@@ -1,10 +1,12 @@
 -i https://pypi.org/simple
-fastapi>=0.115.12
+fastapi[standard]>=0.116.0
 gunicorn>=23.0.0
 httptools>=0.6.4
+httpx>=0.28.1
+redis>=6.2.0
 requests>=2.32.4
-uvicorn>=0.34.3
+rich>=14.0.0
+sentry-sdk[fastapi]>=2.32.0
+uvicorn[standard]>=0.35.0
 uvloop>=0.21.0
 websockets>=15.0.1
-redis[hiredis]>=6.2.0
-sentry-sdk[fastapi]
