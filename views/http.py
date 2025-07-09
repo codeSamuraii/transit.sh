@@ -115,6 +115,9 @@ async def http_download(request: Request, uid: str):
     else:
         log.info(f"▼ HTTP download request for: {transfer.file}")
 
+    if await transfer.is_receiver_connected():
+        raise HTTPException(status_code=409, detail="A client is already downloading this file.")
+
     file_name, file_size, file_type = transfer.get_file_info()
     user_agent = request.headers.get('user-agent', '').lower()
     is_prefetcher = any(prefetch_ua in user_agent for prefetch_ua in PREFETCHER_USER_AGENTS)
@@ -134,6 +137,9 @@ async def http_download(request: Request, uid: str):
             download_url=download_url
         )
         return HTMLResponse(content=html_download, status_code=200)
+
+    if not await transfer.set_receiver_connected():
+        raise HTTPException(status_code=409, detail="A client is already downloading this file.")
 
     await transfer.set_client_connected()
 

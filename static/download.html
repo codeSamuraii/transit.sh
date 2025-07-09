@@ -38,5 +38,12 @@
             <strong>©</strong> <a href="https://github.com/codeSamuraii/">Rémi Héneault</a></p>
         </footer>
     </div>
+    <script>
+        document.getElementById('download-button').addEventListener('click', function() {{
+            this.classList.add('disabled');
+            this.textContent = 'Downloading...';
+            this.style.pointerEvents = 'none';
+        }});
+    </script>
 </body>
 </html>

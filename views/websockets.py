@@ -78,6 +78,11 @@ async def websocket_download(background_tasks: BackgroundTasks, websocket: WebSo
         await websocket.send_text("File not found")
         return
 
+    if await transfer.is_receiver_connected():
+        log.warning("▼ A client is already downloading this file.")
+        await websocket.send_text("Error: A client is already downloading this file.")
+        return
+
     file_name, file_size, file_type = transfer.get_file_info()
     transfer.debug(f"▼ File: name={file_name}, size={file_size}, type={file_type}")
     await websocket.send_json({'file_name': file_name, 'file_size': file_size, 'file_type': file_type})
@@ -92,6 +97,11 @@ async def websocket_download(background_tasks: BackgroundTasks, websocket: WebSo
         except WebSocketDisconnect:
             transfer.warning("▼ Client disconnected while waiting for go-ahead")
             return
+
+    if not await transfer.set_receiver_connected():
+        log.warning("▼ A client is already downloading this file.")
+        await websocket.send_text("Error: A client is already downloading this file.")
+        return
 
     transfer.info("▼ Notifying client is connected.")
     await transfer.set_client_connected()

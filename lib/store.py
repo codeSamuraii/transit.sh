@@ -22,6 +22,7 @@ class Store:
         self._k_queue = self.key('queue')
         self._k_meta = self.key('metadata')
         self._k_cleanup = f'cleanup:{transfer_id}'
+        self._k_receiver_connected = self.key('receiver_connected')
 
     @classmethod
     def get_redis(cls) -> redis.Redis:
@@ -120,6 +121,17 @@ class Store:
         return await self.redis.get(self._k_meta)
 
     ## Transfer state operations ##
+
+    async def set_receiver_connected(self) -> bool:
+        """
+        Mark that a receiver has connected for this transfer.
+        Returns True if the flag was set, False if it was already created.
+        """
+        return bool(await self.redis.set(self._k_receiver_connected, '1', ex=300, nx=True))
+
+    async def is_receiver_connected(self) -> bool:
+        """Check if a receiver has already connected."""
+        return await self.redis.exists(self._k_receiver_connected) > 0
 
     async def set_completed(self) -> None:
         """Mark the transfer as completed."""

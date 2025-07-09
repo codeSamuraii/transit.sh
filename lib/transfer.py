@@ -58,6 +58,12 @@ class FileTransfer:
         await self.wait_for_event('client_connected')
         self.debug(f"△ Received client connected notification.")
 
+    async def is_receiver_connected(self) -> bool:
+        return await self.store.is_receiver_connected()
+
+    async def set_receiver_connected(self) -> bool:
+        return await self.store.set_receiver_connected()
+
     async def is_interrupted(self) -> bool:
         return await self.store.is_interrupted()
 

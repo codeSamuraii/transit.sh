@@ -34,6 +34,8 @@ def mock_redis():
     """Mock Redis client for testing."""
     with patch('lib.store.Store.get_redis') as mock:
         redis_mock = AsyncMock()
+        # Default for receiver connected check
+        redis_mock.exists.return_value = 0
         mock.return_value = redis_mock
         yield redis_mock
 
@@ -146,7 +148,9 @@ class TestHTTPDownload:
 
         # Mock Redis operations for metadata retrieval
         mock_redis.get.return_value = file_metadata.to_json()
-        mock_redis.set.return_value = None
+        # Mock receiver not connected, then successfully set
+        mock_redis.exists.return_value = 0
+        mock_redis.set.return_value = True
         mock_redis.publish.return_value = None
         mock_redis.scan.return_value = (0, [])
         mock_redis.delete.return_value = 1
@@ -197,6 +201,7 @@ class TestHTTPDownload:
         )
 
         mock_redis.get.return_value = file_metadata.to_json()
+        mock_redis.exists.return_value = 0  # Receiver not connected
 
         # Simulate WhatsApp prefetch request
         headers = {"user-agent": "WhatsApp/2.21.1"}
@@ -206,6 +211,24 @@ class TestHTTPDownload:
         assert response.status_code in [200, 500]
         if response.status_code == 200:
             assert "text/html" in response.headers.get("content-type", "") or "test.txt" in response.text
+
+    @pytest.mark.asyncio
+    async def test_http_download_already_connected(self, test_client, mock_redis):
+        """Test that a second download attempt is rejected."""
+        uid = "test-already-connected"
+        file_metadata = FileMetadata(
+            name="test.txt",
+            size=1000,
+            content_type="text/plain"
+        )
+
+        mock_redis.get.return_value = file_metadata.to_json()
+        mock_redis.exists.return_value = 1  # Simulate receiver already connected
+
+        response = test_client.get(f"/{uid}?download=true")
+
+        assert response.status_code == 409
+        assert "A client is already downloading this file" in response.text
 
 
 class TestHTTPUpload:
@@ -320,7 +343,7 @@ class TestIntegration:
             content_type="text/plain"
         ).to_json()
         mock_redis.llen.return_value = 0
-        mock_redis.exists.return_value = False
+        mock_redis.exists.return_value = 0
         mock_redis.publish.return_value = None
         mock_redis.scan.return_value = (0, [])
         mock_redis.delete.return_value = 0
@@ -351,6 +374,8 @@ class TestIntegration:
         # Step 2: Download via HTTP
         def download_file():
             client = TestClient(app)
+            # Mock set_receiver_connected to succeed
+            mock_redis.set.return_value = True
             response = client.get(f"/{uid}?download=true")
             assert response.status_code == 200
             return response.content
