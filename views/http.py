@@ -35,6 +35,9 @@ async def http_upload(request: Request, uid: str, filename: str):
     except KeyError as e:
         log.error("△ Cannot decode file metadata from HTTP headers.", exc_info=e)
         raise HTTPException(status_code=400, detail="Cannot decode file metadata from HTTP headers.")
+    except ValueError as e:
+        log.error("△ Invalid file size.", exc_info=e)
+        raise HTTPException(status_code=400, detail="Invalid file metadata.")
 
     if file.size > 1024**3:
         raise HTTPException(status_code=413, detail="File too large. 1GiB maximum for HTTP.")
