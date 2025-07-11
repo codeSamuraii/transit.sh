@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Transit.sh",
-    description="Direct file transfer with no intermediary storage.",
+    description="Direct file transfer without intermediate storage.",
     version="0.1.0",
     redirect_slashes=True,
     lifespan=lifespan

@@ -306,6 +306,11 @@ body {
     background-color: #388bfd; /* A lighter shade of accent-primary */
 }
 
+.button-download.disabled {
+    background-color: var(--accent-secondary);
+    cursor: not-allowed;
+}
+
 /* Code Blocks */
 .code-section {
     background-color: var(--bg-secondary);
