@@ -1,5 +1,4 @@
 import os
-import logging
 import sentry_sdk
 import redis.asyncio
 from fastapi import FastAPI

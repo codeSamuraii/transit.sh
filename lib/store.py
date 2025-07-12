@@ -1,7 +1,7 @@
 import random
 import asyncio
 import redis.asyncio as redis
-from typing import Optional, Coroutine
+from typing import Optional, Annotated
 
 from lib.logging import get_logger
 

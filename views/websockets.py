@@ -1,7 +1,6 @@
 import asyncio
 import warnings
 from json import JSONDecodeError
-from starlette.background import BackgroundTask
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect, BackgroundTasks
 
 from lib.logging import get_logger

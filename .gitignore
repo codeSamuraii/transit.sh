@@ -13,3 +13,4 @@ TransitApp/
 Dockerfile
 fly.toml
 .pytest_cache/
+*.instructions.md
