@@ -1,12 +1,10 @@
-import json
 import string
 import asyncio
-import pathlib
-from typing import Type
 from fastapi import Request, APIRouter
+from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
 from fastapi.exceptions import HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
+from fastapi.responses import StreamingResponse, PlainTextResponse
 
 from lib.logging import get_logger
 from lib.callbacks import raise_http_exception
@@ -15,6 +13,7 @@ from lib.metadata import FileMetadata
 
 router = APIRouter()
 log = get_logger('http')
+templates = Jinja2Templates(directory="static/templates")
 
 
 @router.put("/{uid}/{filename}")
@@ -74,27 +73,6 @@ PREFETCHER_USER_AGENTS = {
     'whatsapp', 'facebookexternalhit', 'twitterbot', 'slackbot-linkexpanding',
     'discordbot', 'googlebot', 'bingbot', 'linkedinbot', 'pinterestbot', 'telegrambot',
 }
-def get_preview_html(**kwargs):
-    try:
-        template_path = pathlib.Path(__file__).parent.parent / 'static' / 'preview.html'
-        with open(template_path, 'r', encoding='utf-8') as f:
-            html_content = f.read()
-    except FileNotFoundError:
-        return PlainTextResponse("Preview template not found.", status_code=500)
-
-    return html_content.format(**kwargs)
-
-
-def get_download_html(**kwargs):
-    try:
-        template_path = pathlib.Path(__file__).parent.parent / 'static' / 'download.html'
-        with open(template_path, 'r', encoding='utf-8') as f:
-            html_content = f.read()
-    except FileNotFoundError:
-        return PlainTextResponse("Download page template not found.", status_code=500)
-
-    return html_content.format(**kwargs)
-
 
 @router.get("/{uid}")
 @router.get("/{uid}/")
@@ -128,18 +106,11 @@ async def http_download(request: Request, uid: str):
 
     if is_prefetcher:
         log.info(f"▼ Prefetch request detected, serving preview. UA: ({request.headers.get('user-agent')})")
-        html_preview = get_preview_html(file_name=file_name, file_size=file_size, file_type=file_type)
-        return HTMLResponse(content=html_preview, status_code=200)
+        return templates.TemplateResponse(request, "preview.html", transfer.file.to_dict())
 
     if not is_curl and not request.query_params.get('download'):
         log.info(f"▼ Browser request detected, serving download page. UA: ({request.headers.get('user-agent')})")
-        download_url = f"/{uid}?download=true"
-        html_download = get_download_html(
-            file_name=file_name,
-            file_size=f"{file_size / (1024**2):.1f} MiB",
-            download_url=download_url
-        )
-        return HTMLResponse(content=html_download, status_code=200)
+        return templates.TemplateResponse(request, "download.html", transfer.file.to_dict())
 
     if not await transfer.set_receiver_connected():
         raise HTTPException(status_code=409, detail="A client is already downloading this file.")

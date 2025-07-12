@@ -13,6 +13,13 @@ class FileMetadata:
     def to_json(self) -> str:
         return json.dumps(asdict(self), skipkeys=True)
 
+    def to_dict(self) -> dict:
+        return dict(
+            file_name=self.name,
+            file_size=self.size,
+            file_type=self.content_type or ''
+        )
+
     @classmethod
     def from_json(cls, data: str) -> Self:
         return cls(**json.loads(data))

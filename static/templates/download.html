@@ -11,7 +11,7 @@
     <link rel="icon" href="data:image/x-icon;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQEAYAAABPYyMiAAAABmJLR0T///////8JWPfcAAAACXBIWXMAAABIAAAASABGyWs+AAAAF0lEQVRIx2NgGAWjYBSMglEwCkbBSAcACBAAAeaR9cIAAAAASUVORK5CYII=">
     <link rel="stylesheet" href="/css/style.css">
     <script src="https://browser.sentry-cdn.com/9.29.0/bundle.js" crossorigin="anonymous"></script>
-    <script>Sentry.onLoad(function() {{ Sentry.init({{dsn: "https://8c5e2a9a92b4f237e7faa20d6827aa37@o4509473999224832.ingest.us.sentry.io/4509493121712128"}}); }});</script>
+    <script>Sentry.onLoad(function() { Sentry.init({dsn: "https://8c5e2a9a92b4f237e7faa20d6827aa37@o4509473999224832.ingest.us.sentry.io/4509493121712128"}); });</script>
 </head>
 <body>
     <div class="container">
@@ -25,10 +25,10 @@
                 <h2>Ready to download</h2>
                 <div class="download-container">
                     <div class="file-info">
-                        <p><strong>File:</strong> {file_name}</p>
-                        <p><strong>Size:</strong> {file_size}</p>
+                        <p><strong>File:</strong> {{ file_name }}</p>
+                        <p><strong>Size:</strong> <span id="formatted-size">{{ file_size }}</span></p>
                     </div>
-                    <a href="{download_url}" class="button-download" id="download-button">Download File</a>
+                    <a href="#" class="button-download" id="download-button">Download File</a>
                 </div>
             </section>
         </main>
@@ -39,11 +39,27 @@
         </footer>
     </div>
     <script>
-        document.getElementById('download-button').addEventListener('click', function() {{
+        document.getElementById('download-button').href = window.location.href + '?download=true';
+
+        // Format file size to human-readable format
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(1024));
+            return i === 0
+                ? `${bytes} ${units[i]}`
+                : `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+        }
+        const rawSize = parseInt("{{ file_size }}");
+        if (!isNaN(rawSize)) {
+            document.getElementById('formatted-size').textContent = formatFileSize(rawSize);
+        }
+        // Disable the download button after clicking
+        document.getElementById('download-button').addEventListener('click', function() {
             this.classList.add('disabled');
             this.textContent = 'Downloading...';
             this.style.pointerEvents = 'none';
-        }});
+        });
     </script>
 </body>
 </html>
