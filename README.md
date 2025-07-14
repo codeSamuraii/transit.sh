@@ -25,19 +25,38 @@
 
 ## How It Works
 
-Transit.sh uses a combination of WebSockets for browser-based transfers and HTTP PUT/GET for cURL or programmatic access.
+Transit.sh orchestrates a direct data stream between a sender and a receiver, using a Redis backend for signaling and temporary chunk buffering. The server acts as a smart pipe, ensuring the sender only transmits data when the receiver is ready, and that data is forwarded in real-time without being stored on disk.
 
-1.  **Sender Initiates**:
-    *   **Web UI**: The sender drags & drops a file. A unique transfer ID is generated, and a WebSocket connection is established. File metadata is sent.
-    *   **cURL**: The sender uses `curl` to initiate a transfer.
-2.  **Waiting for Receiver**: The sender's connection is held, and the system waits for the receiver to connect using the generated transfer ID.
-3.  **Receiver Connects**:
-    *   **Web Browser**: The receiver opens the link `https://transit.sh/<transfer-id>`.
-    *   **cURL**: The receiver uses `curl -JLO https://transit.sh/<transfer-id>/`.
-4.  **Data Streaming**: Once both parties are connected, file data is streamed in chunks from the sender to the receiver. The server acts as a temporary pipe, holding chunks in memory briefly.
-5.  **Transfer Completion**: Both parties are notified upon successful transfer or if an error occurs.
+1.  **Initiation (Sender)**:
+    *   A sender initiates a transfer, for example, by dropping a file in the web UI. A unique transfer ID is generated.
+    *   A WebSocket connection is established to the `/send/{transfer-id}` endpoint.
+    *   The client sends a JSON message containing the file's metadata (name, size, type).
+    *   On the server, a `FileTransfer` object is created, and the metadata is stored in a Redis key with a set expiration time.
 
-Redis is used for managing transfer state (metadata, signaling events like "receiver connected") and queuing data chunks.
+2.  **Waiting for Receiver (Sender)**:
+    *   The sender's connection is held open. The server process handling the sender now subscribes to a unique Redis Pub/Sub channel for this specific transfer (e.g., `transfer:{transfer-id}:client_connected`).
+    *   The sender waits for a "receiver connected" signal on this channel. This is a blocking operation that prevents any file data from being sent until the receiver is present.
+
+3.  **Connection (Receiver)**:
+    *   The receiver uses the shared link to access `/{transfer-id}`.
+    *   The server retrieves the file metadata from Redis to serve a download page or prepare for a direct download (e.g., for `cURL`).
+    *   When the download is initiated, the server publishes a message to the transfer's specific Pub/Sub channel.
+
+4.  **Data Streaming**:
+    *   The message published by the receiver's process is received by the sender's process, unblocking the wait step.
+    *   The sender's client is now instructed to start sending file data.
+    *   Chunks of the file are sent over the WebSocket connection. Each chunk is pushed into a Redis list, which serves as a temporary, in-memory queue for the transfer.
+    *   The receiver's process, which has been waiting since it connected, starts pulling chunks from the Redis list as they arrive.
+    *   These chunks are immediately streamed to the receiver over an HTTP connection.
+    *   A simple backpressure mechanism is in place: the sender will pause if the Redis list (queue) grows too large, ensuring the sender doesn't overwhelm a slower receiver.
+
+5.  **Completion & Cleanup**:
+    *   Once the sender has sent all the file's bytes, it places a special `DONE_FLAG` in the queue.
+    *   When the receiver reads this flag, it knows the transfer is complete.
+    *   If either party disconnects prematurely, an `INTERRUPT` flag is set, which terminates the transfer on the other end.
+    *   After the transfer is finished or has failed, a cleanup process removes all associated keys (metadata, queue, event flags) from Redis.
+
+This architecture ensures that the file data is never stored at rest on the server, flowing from sender to receiver with minimal buffering in Redis.
 
 ## Local Development & Deployment
 
