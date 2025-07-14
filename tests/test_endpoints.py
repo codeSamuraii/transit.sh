@@ -223,7 +223,7 @@ class TestHTTPDownload:
         )
 
         mock_redis.get.return_value = file_metadata.to_json()
-        mock_redis.exists.return_value = 1  # Simulate receiver already connected
+        mock_redis.set.return_value = False  # Simulate receiver already connected
 
         response = test_client.get(f"/{uid}?download=true")
 

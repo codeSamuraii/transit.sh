@@ -1,4 +1,5 @@
 import json
+import math
 from dataclasses import dataclass, asdict
 from starlette.datastructures import Headers
 from typing import Optional, Self
@@ -13,11 +14,11 @@ class FileMetadata:
     def to_json(self) -> str:
         return json.dumps(asdict(self), skipkeys=True)
 
-    def to_dict(self) -> dict:
+    def to_readable_dict(self) -> dict:
         return dict(
             file_name=self.name,
-            file_size=self.size,
-            file_type=self.content_type or ''
+            file_size=self.format_size(self.size),
+            file_type=self.format_type(self.content_type)
         )
 
     @classmethod
@@ -44,6 +45,22 @@ class FileMetadata:
     def escape_filename(filename: str) -> str:
         """Escape special characters in the filename."""
         return str(filename).encode('latin-1', 'ignore').decode('utf-8', 'ignore')
+
+    @staticmethod
+    def format_size(size_bytes: int) -> str:
+        """Return human-readable file size."""
+        if size_bytes == 0:
+            return "0 B"
+        units = ("B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB")
+        i = math.floor(math.log(size_bytes, 1024))
+        p = math.pow(1024, i)
+        s = round(size_bytes / p, 1)
+        return f"{s} {units[i]}"
+
+    @staticmethod
+    def format_type(content_type: Optional[str]) -> str:
+        """Return human-readable file type."""
+        return content_type or "unknown"
 
     @staticmethod
     def process_length(length: str | int) -> int:

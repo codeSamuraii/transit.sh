@@ -96,9 +96,6 @@ async def http_download(request: Request, uid: str):
     else:
         log.info(f"▼ HTTP download request for: {transfer.file}")
 
-    if await transfer.is_receiver_connected():
-        raise HTTPException(status_code=409, detail="A client is already downloading this file.")
-
     file_name, file_size, file_type = transfer.get_file_info()
     user_agent = request.headers.get('user-agent', '').lower()
     is_prefetcher = any(prefetch_ua in user_agent for prefetch_ua in PREFETCHER_USER_AGENTS)
@@ -106,13 +103,13 @@ async def http_download(request: Request, uid: str):
 
     if is_prefetcher:
         log.info(f"▼ Prefetch request detected, serving preview. UA: ({request.headers.get('user-agent')})")
-        return templates.TemplateResponse(request, "preview.html", transfer.file.to_dict())
+        return templates.TemplateResponse(request, "preview.html", transfer.file.to_readable_dict())
 
     if not is_curl and not request.query_params.get('download'):
         log.info(f"▼ Browser request detected, serving download page. UA: ({request.headers.get('user-agent')})")
-        return templates.TemplateResponse(request, "download.html", transfer.file.to_dict())
+        return templates.TemplateResponse(request, "download.html", transfer.file.to_readable_dict() | {'receiver_connected': await transfer.is_receiver_connected()})
 
-    if not await transfer.set_receiver_connected():
+    elif not await transfer.set_receiver_connected():
         raise HTTPException(status_code=409, detail="A client is already downloading this file.")
 
     await transfer.set_client_connected()

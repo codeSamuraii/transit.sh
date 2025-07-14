@@ -26,9 +26,9 @@
                 <div class="download-container">
                     <div class="file-info">
                         <p><strong>File:</strong> {{ file_name }}</p>
-                        <p><strong>Size:</strong> <span id="formatted-size">{{ file_size }}</span></p>
+                        <p><strong>Size:</strong> {{ file_size }}</p>
                     </div>
-                    <a href="#" class="button-download" id="download-button">Download File</a>
+                    <a href="#" class="button-download" id="download-button" data-receiver-connected="{{ receiver_connected | tojson }}">Download File</a>
                 </div>
             </section>
         </main>
@@ -39,27 +39,21 @@
         </footer>
     </div>
     <script>
-        document.getElementById('download-button').href = window.location.href + '?download=true';
+        const downloadButton = document.getElementById('download-button');
+        const receiverConnected = JSON.parse(downloadButton.dataset.receiverConnected || 'false');
 
-        // Format file size to human-readable format
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 B';
-            const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(1024));
-            return i === 0
-                ? `${bytes} ${units[i]}`
-                : `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+        function disableDownloadButton(text) {
+            downloadButton.classList.add('disabled');
+            downloadButton.textContent = text;
+            downloadButton.style.pointerEvents = 'none';
         }
-        const rawSize = parseInt("{{ file_size }}");
-        if (!isNaN(rawSize)) {
-            document.getElementById('formatted-size').textContent = formatFileSize(rawSize);
+
+        if (receiverConnected) {
+            disableDownloadButton("Download already started.");
+        } else {
+            downloadButton.href = window.location.href + '?download=true';
+            downloadButton.addEventListener('click', () => disableDownloadButton("Downloading..."));
         }
-        // Disable the download button after clicking
-        document.getElementById('download-button').addEventListener('click', function() {
-            this.classList.add('disabled');
-            this.textContent = 'Downloading...';
-            this.style.pointerEvents = 'none';
-        });
     </script>
 </body>
 </html>
