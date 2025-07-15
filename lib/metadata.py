@@ -42,9 +42,10 @@ class FileMetadata:
         )
 
     @staticmethod
-    def escape_filename(filename: str) -> str:
+    def escape_filename(filename: str | int) -> str:
         """Escape special characters in the filename."""
-        return str(filename).encode('latin-1', 'ignore').decode('utf-8', 'ignore')
+        safe_filename = str(filename).translate(str.maketrans('', '', ':;|*@/\\'))
+        return safe_filename.encode('latin-1', 'ignore').decode('utf-8', 'ignore')
 
     @staticmethod
     def format_size(size_bytes: int) -> str:

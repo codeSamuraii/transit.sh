@@ -105,7 +105,7 @@ class Store:
 
         finally:
             await pubsub.unsubscribe(event_key)
-            await pubsub.close()
+            await pubsub.aclose()
             await asyncio.gather(*tasks, return_exceptions=True)
 
     ## Metadata operations ##

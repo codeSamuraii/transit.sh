@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
     sentry_sdk.init(release=os.getenv('DEPLOYMENT_ID', 'local'))
     app.state.redis = redis.asyncio.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379'))
     yield
-    await app.state.redis.close()
+    await app.state.redis.aclose()
 
 app = FastAPI(
     title="Transit.sh",
