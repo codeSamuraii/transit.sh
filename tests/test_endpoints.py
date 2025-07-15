@@ -13,6 +13,11 @@ from lib.transfer import FileMetadata, FileTransfer
 
 
 @pytest.fixture
+def anyio_backend():
+    return ('asyncio', {'use_uvloop': True})
+
+
+@pytest.fixture
 def test_client():
     """FastAPI test client for HTTP endpoints."""
     return TestClient(app)
@@ -43,7 +48,7 @@ def mock_redis():
 class TestWebSocketUpload:
     """Test WebSocket upload endpoint."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_websocket_upload_success(self, test_file, mock_redis):
         """Test successful WebSocket upload."""
         file_path, file_content = test_file
@@ -85,7 +90,7 @@ class TestWebSocketUpload:
                 # Send empty chunk to signal end
                 websocket.send_bytes(b'')
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_websocket_upload_invalid_header(self, mock_redis):
         """Test WebSocket upload with invalid header."""
         uid = "test-invalid-header"
@@ -108,7 +113,7 @@ class TestWebSocketUpload:
                 response = websocket.receive_text()
                 assert "Error: Cannot decode file metadata" in response
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_websocket_upload_missing_file_fields(self, mock_redis):
         """Test WebSocket upload with missing required fields."""
         uid = "test-missing-fields"
@@ -133,7 +138,7 @@ class TestWebSocketUpload:
 class TestHTTPDownload:
     """Test HTTP download endpoint."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_http_download_success(self, test_client, test_file, mock_redis):
         """Test successful HTTP download."""
         file_path, file_content = test_file
@@ -167,7 +172,7 @@ class TestHTTPDownload:
         assert response.content == file_content
         assert response.headers["content-disposition"] == f"attachment; filename={file_path.name}"
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_http_download_not_found(self, test_client, mock_redis):
         """Test HTTP download for non-existent transfer."""
         uid = "non-existent-transfer"
@@ -180,7 +185,7 @@ class TestHTTPDownload:
         assert response.status_code == 404
         assert "Transfer not found" in response.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_http_download_invalid_uid(self, test_client):
         """Test HTTP download with invalid UID containing dots."""
         uid = "invalid.uid.with.dots"
@@ -190,7 +195,7 @@ class TestHTTPDownload:
         assert response.status_code == 400
         assert "Invalid transfer ID" in response.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_http_download_prefetch_protection(self, test_client, mock_redis):
         """Test that prefetch requests get HTML preview instead of file."""
         uid = "test-prefetch-123"
@@ -212,7 +217,7 @@ class TestHTTPDownload:
         if response.status_code == 200:
             assert "text/html" in response.headers.get("content-type", "") or "test.txt" in response.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_http_download_already_connected(self, test_client, mock_redis):
         """Test that a second download attempt is rejected."""
         uid = "test-already-connected"
@@ -234,7 +239,7 @@ class TestHTTPDownload:
 class TestHTTPUpload:
     """Test HTTP upload endpoint."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_http_upload_success(self, test_client, test_file, mock_redis):
         """Test successful HTTP upload."""
         file_path, file_content = test_file
@@ -265,7 +270,7 @@ class TestHTTPUpload:
         assert response.status_code == 200
         assert "Transfer complete" in response.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_http_upload_file_too_large(self, test_client):
         """Test HTTP upload with file larger than 100MB limit."""
         uid = "test-large-file"
@@ -284,7 +289,7 @@ class TestHTTPUpload:
         assert response.status_code == 413
         assert "File too large" in response.text
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_http_upload_client_timeout(self, test_client, test_file, mock_redis):
         """Test HTTP upload when client doesn't connect in time."""
         file_path, file_content = test_file
@@ -316,7 +321,7 @@ class TestHTTPUpload:
 class TestIntegration:
     """Integration tests combining multiple endpoints."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_full_transfer_flow(self, test_file, mock_redis):
         """Test complete transfer flow: upload via WebSocket, download via HTTP."""
         file_path, file_content = test_file
