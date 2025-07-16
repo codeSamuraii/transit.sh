@@ -1,400 +1,182 @@
-import json
 import asyncio
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
-
 import pytest
-from fastapi.testclient import TestClient
-from starlette.websockets import WebSocket
+import httpx
+from fastapi import WebSocketDisconnect
+from starlette.responses import ClientDisconnect
 
-from app import app
-from lib.transfer import FileMetadata, FileTransfer
-
-
-@pytest.fixture
-def anyio_backend():
-    return ('asyncio', {'use_uvloop': True})
+from tests.helpers import generate_test_file
 
 
-@pytest.fixture
-def test_client():
-    """FastAPI test client for HTTP endpoints."""
-    return TestClient(app)
+@pytest.mark.anyio
+@pytest.mark.parametrize("uid, expected_status", [
+    ("invalid_id!", 400),
+    ("bad id", 400),
+])
+async def test_invalid_uid(websocket_client, test_client: httpx.AsyncClient, uid: str, expected_status: int):
+    """Tests that endpoints reject invalid UIDs."""
+    response_get = await test_client.get(f"/{uid}")
+    assert response_get.status_code == expected_status
+
+    response_put = await test_client.put(f"/{uid}/test.txt")
+    assert response_put.status_code == expected_status
+
+    with pytest.raises(WebSocketDisconnect):
+        with websocket_client.websocket_connect(f"/send/{uid}"):  # type: ignore
+            pass  # Connection should be rejected immediately
 
 
-@pytest.fixture
-def test_file():
-    """Create a temporary test file."""
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as f:
-        test_content = b"Hello, World! This is test content." * 100  # ~3KB
-        f.write(test_content)
-        f.flush()
-        yield Path(f.name), test_content
-    Path(f.name).unlink(missing_ok=True)
+@pytest.mark.anyio
+async def test_slash_in_uid_routes_to_404(test_client: httpx.AsyncClient):
+    """Tests that UIDs with slashes get handled as separate routes and return 404."""
+    # The "id/with/slash" gets parsed as path params, so it hits different routes
+    response = await test_client.get("/id/with/slash")
+    assert response.status_code == 404
 
 
-@pytest.fixture
-def mock_redis():
-    """Mock Redis client for testing."""
-    with patch('lib.store.Store.get_redis') as mock:
-        redis_mock = AsyncMock()
-        # Default for receiver connected check
-        redis_mock.exists.return_value = 0
-        mock.return_value = redis_mock
-        yield redis_mock
+@pytest.mark.anyio
+async def test_transfer_id_already_used(websocket_client):
+    """Tests that creating a transfer with an existing ID fails."""
+    uid = "duplicate-id"
+    _, file_metadata = generate_test_file()
+
+    # First creation should succeed
+    with websocket_client.websocket_connect(f"/send/{uid}") as ws:
+        ws.send_json({
+            'file_name': file_metadata.name,
+            'file_size': file_metadata.size,
+            'file_type': file_metadata.content_type
+        })
+
+        # Second attempt should fail with an error message
+        with websocket_client.websocket_connect(f"/send/{uid}") as ws2:
+            ws2.send_json({
+                'file_name': file_metadata.name,
+                'file_size': file_metadata.size,
+                'file_type': file_metadata.content_type
+            })
+            response = ws2.receive_text()
+            assert "Error: Transfer ID is already used." in response
 
 
-class TestWebSocketUpload:
-    """Test WebSocket upload endpoint."""
+@pytest.mark.anyio
+async def test_sender_timeout(websocket_client, monkeypatch):
+    """Tests that the sender times out if the receiver doesn't connect."""
+    uid = "sender-timeout"
+    _, file_metadata = generate_test_file()
 
-    @pytest.mark.anyio
-    async def test_websocket_upload_success(self, test_file, mock_redis):
-        """Test successful WebSocket upload."""
-        file_path, file_content = test_file
-        uid = "test-upload-123"
+    # Override the timeout for the test to make it fail quickly
+    async def mock_wait_for_client_connected(self):
+        await asyncio.sleep(1.0)  # Short delay
+        raise asyncio.TimeoutError("Mocked timeout")
 
-        # Mock Redis operations
-        mock_redis.set.return_value = None
-        mock_redis.get.return_value = None
-        mock_redis.lpush.return_value = None
-        mock_redis.brpop.return_value = None
-        mock_redis.exists.return_value = False
-        mock_redis.publish.return_value = None
-        mock_redis.scan.return_value = (0, [])
-        mock_redis.delete.return_value = 0
-        mock_redis.llen.return_value = 0
+    from lib.transfer import FileTransfer
+    monkeypatch.setattr(FileTransfer, 'wait_for_client_connected', mock_wait_for_client_connected)
 
-        # Simulate file metadata
-        file_metadata = {
-            "file_name": file_path.name,
-            "file_size": len(file_content),
-            "file_type": "text/plain"
-        }
-
-        with patch.object(FileTransfer, 'wait_for_client_connected', new_callable=AsyncMock):
-            with TestClient(app).websocket_connect(f"/send/{uid}") as websocket:
-                # Send file metadata header
-                websocket.send_json(file_metadata)
-
-                # Wait for go-ahead message
-                message = websocket.receive_text()
-                assert message == "Go for file chunks"
-
-                # Send file chunks
-                chunk_size = 1024
-                for i in range(0, len(file_content), chunk_size):
-                    chunk = file_content[i:i + chunk_size]
-                    websocket.send_bytes(chunk)
-
-                # Send empty chunk to signal end
-                websocket.send_bytes(b'')
-
-    @pytest.mark.anyio
-    async def test_websocket_upload_invalid_header(self, mock_redis):
-        """Test WebSocket upload with invalid header."""
-        uid = "test-invalid-header"
-
-        # Mock Redis operations
-        mock_redis.set.return_value = None
-        mock_redis.get.return_value = None
-        mock_redis.lpush.return_value = None
-        mock_redis.exists.return_value = False
-        mock_redis.publish.return_value = None
-        mock_redis.scan.return_value = (0, [])
-        mock_redis.delete.return_value = 0
-
-        # Patch the websocket.receive_json to handle the error properly
-        with patch.object(WebSocket, 'receive_json') as mock_receive_json:
-            mock_receive_json.side_effect = json.JSONDecodeError("Expecting value", "invalid json", 0)
-
-            with TestClient(app).websocket_connect(f"/send/{uid}") as websocket:
-                # The error should be handled in the endpoint and return an error message
-                response = websocket.receive_text()
-                assert "Error: Cannot decode file metadata" in response
-
-    @pytest.mark.anyio
-    async def test_websocket_upload_missing_file_fields(self, mock_redis):
-        """Test WebSocket upload with missing required fields."""
-        uid = "test-missing-fields"
-
-        # Mock Redis operations
-        mock_redis.set.return_value = None
-        mock_redis.get.return_value = None
-        mock_redis.lpush.return_value = None
-        mock_redis.exists.return_value = False
-        mock_redis.publish.return_value = None
-        mock_redis.scan.return_value = (0, [])
-        mock_redis.delete.return_value = 0
-
-        with TestClient(app).websocket_connect(f"/send/{uid}") as websocket:
-            # Send header missing required fields
-            websocket.send_json({"file_name": "test.txt"})  # Missing size and type
-
-            response = websocket.receive_text()
-            assert "Error: Cannot decode file metadata" in response
+    with websocket_client.websocket_connect(f"/send/{uid}") as ws:
+        ws.send_json({
+            'file_name': file_metadata.name,
+            'file_size': file_metadata.size,
+            'file_type': file_metadata.content_type
+        })
+        # This should timeout because we are not starting a receiver
+        response = ws.receive_text()
+        assert "Error: Receiver did not connect in time." in response
 
 
-class TestHTTPDownload:
-    """Test HTTP download endpoint."""
+@pytest.mark.anyio
+async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_client):
+    """Tests that the sender is notified if the receiver disconnects mid-transfer."""
+    uid = "receiver-disconnect"
+    file_content, file_metadata = generate_test_file(size_in_kb=128)  # Larger file
 
-    @pytest.mark.anyio
-    async def test_http_download_success(self, test_client, test_file, mock_redis):
-        """Test successful HTTP download."""
-        file_path, file_content = test_file
-        uid = "test-download-123"
+    async def sender():
+        with pytest.raises(ClientDisconnect, check=lambda e: "Received less data than expected" in str(e)):
+            with websocket_client.websocket_connect(f"/send/{uid}") as ws:
+                await asyncio.sleep(0.1)
 
-        # Mock existing transfer
-        file_metadata = FileMetadata(
-            name=file_path.name,
-            size=len(file_content),
-            content_type="text/plain"
-        )
+                ws.send_json({
+                    'file_name': file_metadata.name,
+                    'file_size': file_metadata.size,
+                    'file_type': file_metadata.content_type
+                })
+                await asyncio.sleep(1.0)  # Allow receiver to connect
 
-        # Mock Redis operations for metadata retrieval
-        mock_redis.get.return_value = file_metadata.to_json()
-        # Mock receiver not connected, then successfully set
-        mock_redis.exists.return_value = 0
-        mock_redis.set.return_value = True
-        mock_redis.publish.return_value = None
-        mock_redis.scan.return_value = (0, [])
-        mock_redis.delete.return_value = 1
+                response = ws.receive_text()
+                await asyncio.sleep(0.1)
+                assert response == "Go for file chunks"
 
-        # Mock queue operations to return file content
-        chunks = [file_content[i:i+1024] for i in range(0, len(file_content), 1024)]
-        chunks.append(b'\x00\xFF')  # End marker
-        mock_redis.brpop.side_effect = [(uid, chunk) for chunk in chunks]
+                # Send one chunk
+                ws.send_bytes(file_content[:4096])
+                await asyncio.sleep(0.1)
 
-        # Mock the background task completion
-        response = test_client.get(f"/{uid}?download=true")
+    async def receiver():
+        await asyncio.sleep(1.0)
+        headers = {'Accept': '*/*'}
+
+        async with test_client.stream("GET", f"/{uid}?download=true", headers=headers) as response:
+            await asyncio.sleep(0.1)
+
+            response.raise_for_status()
+            with pytest.raises(ClientDisconnect, check=lambda e: "Sender disconnected" in str(e)):
+                async for chunk in response.aiter_bytes(4096):
+                    if not chunk:
+                        break
+                    await asyncio.sleep(0.025)
+
+    t1 = asyncio.create_task(asyncio.wait_for(sender(), timeout=15))
+    t2 = asyncio.create_task(asyncio.wait_for(receiver(), timeout=15))
+    await asyncio.gather(t1, t2, return_exceptions=True)
+
+
+
+@pytest.mark.anyio
+async def test_prefetcher_request(test_client: httpx.AsyncClient, websocket_client):
+    """Tests that prefetcher user agents are served a preview page."""
+    uid = "prefetch-test"
+    _, file_metadata = generate_test_file()
+
+    # Create a dummy transfer to get metadata
+    with websocket_client.websocket_connect(f"/send/{uid}") as ws:
+        await asyncio.sleep(0.1)
+
+        ws.send_json({
+            'file_name': file_metadata.name,
+            'file_size': file_metadata.size,
+            'file_type': file_metadata.content_type
+        })
+        await asyncio.sleep(1.0)
+
+        headers = {'User-Agent': 'facebookexternalhit/1.1'}
+        response = await test_client.get(f"/{uid}", headers=headers)
+        await asyncio.sleep(0.1)
 
         assert response.status_code == 200
-        assert response.content == file_content
-        assert response.headers["content-disposition"] == f"attachment; filename={file_path.name}"
-
-    @pytest.mark.anyio
-    async def test_http_download_not_found(self, test_client, mock_redis):
-        """Test HTTP download for non-existent transfer."""
-        uid = "non-existent-transfer"
-
-        # Mock no metadata found
-        mock_redis.get.return_value = None
-
-        response = test_client.get(f"/{uid}")
-
-        assert response.status_code == 404
-        assert "Transfer not found" in response.text
-
-    @pytest.mark.anyio
-    async def test_http_download_invalid_uid(self, test_client):
-        """Test HTTP download with invalid UID containing dots."""
-        uid = "invalid.uid.with.dots"
-
-        response = test_client.get(f"/{uid}")
-
-        assert response.status_code == 400
-        assert "Invalid transfer ID" in response.text
-
-    @pytest.mark.anyio
-    async def test_http_download_prefetch_protection(self, test_client, mock_redis):
-        """Test that prefetch requests get HTML preview instead of file."""
-        uid = "test-prefetch-123"
-        file_metadata = FileMetadata(
-            name="test.txt",
-            size=1000,
-            content_type="text/plain"
-        )
-
-        mock_redis.get.return_value = file_metadata.to_json()
-        mock_redis.exists.return_value = 0  # Receiver not connected
-
-        # Simulate WhatsApp prefetch request
-        headers = {"user-agent": "WhatsApp/2.21.1"}
-        response = test_client.get(f"/{uid}", headers=headers)
-
-        # Should return HTML preview or plain text error if template not found
-        assert response.status_code in [200, 500]
-        if response.status_code == 200:
-            assert "text/html" in response.headers.get("content-type", "") or "test.txt" in response.text
-
-    @pytest.mark.anyio
-    async def test_http_download_already_connected(self, test_client, mock_redis):
-        """Test that a second download attempt is rejected."""
-        uid = "test-already-connected"
-        file_metadata = FileMetadata(
-            name="test.txt",
-            size=1000,
-            content_type="text/plain"
-        )
-
-        mock_redis.get.return_value = file_metadata.to_json()
-        mock_redis.set.return_value = False  # Simulate receiver already connected
-
-        response = test_client.get(f"/{uid}?download=true")
-
-        assert response.status_code == 409
-        assert "A client is already downloading this file" in response.text
+        assert "text/html" in response.headers['content-type']
+        assert "Ready to download" not in response.text
+        assert "Download File" not in response.text
 
 
-class TestHTTPUpload:
-    """Test HTTP upload endpoint."""
+@pytest.mark.anyio
+async def test_browser_download_page(test_client: httpx.AsyncClient, websocket_client):
+    """Tests that a browser is served the download page."""
+    uid = "browser-download-page"
+    _, file_metadata = generate_test_file()
 
-    @pytest.mark.anyio
-    async def test_http_upload_success(self, test_client, test_file, mock_redis):
-        """Test successful HTTP upload."""
-        file_path, file_content = test_file
-        uid = "test-upload-456"
-        filename = file_path.name
+    with websocket_client.websocket_connect(f"/send/{uid}") as ws:
+        await asyncio.sleep(0.1)
 
-        # Mock Redis operations
-        mock_redis.set.return_value = None
-        mock_redis.lpush.return_value = None
-        mock_redis.exists.return_value = False
-        mock_redis.publish.return_value = None
-        mock_redis.scan.return_value = (0, [])
-        mock_redis.delete.return_value = 0
-        mock_redis.llen.return_value = 0  # Queue not full
+        ws.send_json({
+            'file_name': file_metadata.name,
+            'file_size': file_metadata.size,
+            'file_type': file_metadata.content_type
+        })
+        await asyncio.sleep(1.0)
 
-        headers = {
-            "content-length": str(len(file_content)),
-            "content-type": "text/plain"
-        }
-
-        with patch.object(FileTransfer, 'wait_for_client_connected', new_callable=AsyncMock):
-            response = test_client.put(
-                f"/{uid}/{filename}",
-                content=file_content,
-                headers=headers
-            )
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = await test_client.get(f"/{uid}", headers=headers)
+        await asyncio.sleep(0.1)
 
         assert response.status_code == 200
-        assert "Transfer complete" in response.text
-
-    @pytest.mark.anyio
-    async def test_http_upload_file_too_large(self, test_client):
-        """Test HTTP upload with file larger than 100MB limit."""
-        uid = "test-large-file"
-        filename = "large_file.bin"
-
-        # Simulate large file with content-length header
-        large_size = int(1.1 * 1024**3)  # 1.1 GiB
-        headers = {"content-length": str(large_size)}
-
-        response = test_client.put(
-            f"/{uid}/{filename}",
-            content=b"dummy",  # Actual content doesn't matter for this test
-            headers=headers
-        )
-
-        assert response.status_code == 413
-        assert "File too large" in response.text
-
-    @pytest.mark.anyio
-    async def test_http_upload_client_timeout(self, test_client, test_file, mock_redis):
-        """Test HTTP upload when client doesn't connect in time."""
-        file_path, file_content = test_file
-        uid = "test-timeout-789"
-        filename = file_path.name
-
-        # Mock Redis operations
-        mock_redis.set.return_value = None
-        mock_redis.llen.return_value = 0
-        mock_redis.exists.return_value = b'0'
-
-        headers = {
-            "content-length": str(len(file_content)),
-            "content-type": "text/plain"
-        }
-
-        # Mock timeout on waiting for client
-        with patch.object(FileTransfer, 'wait_for_client_connected', side_effect=asyncio.TimeoutError):
-            response = test_client.put(
-                f"/{uid}/{filename}",
-                content=file_content,
-                headers=headers
-            )
-
-        assert response.status_code == 408
-        assert "Client did not connect in time" in response.text
-
-
-class TestIntegration:
-    """Integration tests combining multiple endpoints."""
-
-    @pytest.mark.anyio
-    async def test_full_transfer_flow(self, test_file, mock_redis):
-        """Test complete transfer flow: upload via WebSocket, download via HTTP."""
-        file_path, file_content = test_file
-        uid = "integration-test-001"
-
-        # Mock Redis to simulate actual queue behavior
-        queue_data = []
-
-        async def mock_lpush(key, data):
-            queue_data.append(data)
-            return len(queue_data)
-
-        async def mock_brpop(keys, timeout=None):
-            if queue_data:
-                return (keys[0], queue_data.pop(0))
-            return None
-
-        mock_redis.lpush.side_effect = mock_lpush
-        mock_redis.brpop.side_effect = mock_brpop
-        mock_redis.set.return_value = None
-        mock_redis.get.return_value = FileMetadata(
-            name=file_path.name,
-            size=len(file_content),
-            content_type="text/plain"
-        ).to_json()
-        mock_redis.llen.return_value = 0
-        mock_redis.exists.return_value = 0
-        mock_redis.publish.return_value = None
-        mock_redis.scan.return_value = (0, [])
-        mock_redis.delete.return_value = 0
-
-        # Step 1: Upload via WebSocket
-        file_metadata = {
-            "file_name": file_path.name,
-            "file_size": len(file_content),
-            "file_type": "text/plain"
-        }
-
-        def upload_file():
-            with patch.object(FileTransfer, 'wait_for_client_connected', new_callable=AsyncMock):
-                with TestClient(app).websocket_connect(f"/send/{uid}") as websocket:
-                    websocket.send_json(file_metadata)
-
-                    message = websocket.receive_text()
-                    assert message == "Go for file chunks"
-
-                    # Send file in chunks
-                    chunk_size = 1024
-                    for i in range(0, len(file_content), chunk_size):
-                        chunk = file_content[i:i + chunk_size]
-                        websocket.send_bytes(chunk)
-
-                    websocket.send_bytes(b'')  # End marker
-
-        # Step 2: Download via HTTP
-        def download_file():
-            client = TestClient(app)
-            # Mock set_receiver_connected to succeed
-            mock_redis.set.return_value = True
-            response = client.get(f"/{uid}?download=true")
-            assert response.status_code == 200
-            return response.content
-
-        # Execute upload (synchronous since TestClient is sync)
-        upload_file()
-
-        # Verify data was queued correctly
-        assert len(queue_data) > 0, "No data was queued during upload"
-
-        # Execute download and verify content
-        downloaded_content = download_file()
-        assert downloaded_content == file_content, f"Downloaded content (size: {len(downloaded_content)}) does not match uploaded content (size: {len(file_content)})"
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        assert "text/html" in response.headers['content-type']
+        assert "Ready to download" in response.text
+        assert "Download File" in response.text

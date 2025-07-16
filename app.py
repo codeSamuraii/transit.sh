@@ -29,8 +29,8 @@ app = FastAPI(
 
 # App. routes
 app.include_router(misc_router)
+app.include_router(ws_router)  # WebSocket routes first to avoid conflicts
 app.include_router(http_router)
-app.include_router(ws_router)
 
 # Static files
 app.mount('/', StaticFiles(directory='static', html=True), name='static')
