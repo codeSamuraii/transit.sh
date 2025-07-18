@@ -28,7 +28,7 @@ async def test_client(redis_client: redis.Redis) -> AsyncIterator[httpx.AsyncCli
     app.state.redis = redis_client
 
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         # Patch the `get_redis` method of the `Store` class
         with patch.object(Store, 'get_redis', new=get_redis_override):
             print("")
@@ -45,7 +45,7 @@ async def websocket_client(redis_client: redis.Redis):
 
     # Patch the `get_redis` method of the `Store` class
     with patch.object(Store, 'get_redis', new=get_redis_override):
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://testserver") as client:
             print("")
             yield client
 

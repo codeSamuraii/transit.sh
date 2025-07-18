@@ -14,7 +14,7 @@ def generate_test_file(size_in_kb: int = 10) -> tuple[bytes, FileMetadata]:
     metadata = FileMetadata(
         name="test_file.bin",
         size=len(content),
-        content_type="application/octet-stream"
+        type="application/octet-stream"
     )
     return content, metadata
 

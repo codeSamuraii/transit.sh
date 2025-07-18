@@ -44,7 +44,7 @@ class FileTransfer:
         return str(uid).strip().encode('ascii', 'ignore').decode()
 
     def get_file_info(self):
-        return self.file.name, self.file.size, self.file.content_type
+        return self.file.name, self.file.size, self.file.type
 
     async def wait_for_event(self, event_name: str, timeout: float = 300.0):
         await self.store.wait_for_event(event_name, timeout)

@@ -44,7 +44,7 @@ async def test_transfer_id_already_used(websocket_client):
         ws.send_json({
             'file_name': file_metadata.name,
             'file_size': file_metadata.size,
-            'file_type': file_metadata.content_type
+            'file_type': file_metadata.type
         })
 
         # Second attempt should fail with an error message
@@ -52,7 +52,7 @@ async def test_transfer_id_already_used(websocket_client):
             ws2.send_json({
                 'file_name': file_metadata.name,
                 'file_size': file_metadata.size,
-                'file_type': file_metadata.content_type
+                'file_type': file_metadata.type
             })
             response = ws2.receive_text()
             assert "Error: Transfer ID is already used." in response
@@ -76,7 +76,7 @@ async def test_sender_timeout(websocket_client, monkeypatch):
         ws.send_json({
             'file_name': file_metadata.name,
             'file_size': file_metadata.size,
-            'file_type': file_metadata.content_type
+            'file_type': file_metadata.type
         })
         # This should timeout because we are not starting a receiver
         response = ws.receive_text()
@@ -97,7 +97,7 @@ async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_cl
                 ws.send_json({
                     'file_name': file_metadata.name,
                     'file_size': file_metadata.size,
-                    'file_type': file_metadata.content_type
+                    'file_type': file_metadata.type
                 })
                 await asyncio.sleep(1.0)  # Allow receiver to connect
 
@@ -142,7 +142,7 @@ async def test_prefetcher_request(test_client: httpx.AsyncClient, websocket_clie
         ws.send_json({
             'file_name': file_metadata.name,
             'file_size': file_metadata.size,
-            'file_type': file_metadata.content_type
+            'file_type': file_metadata.type
         })
         await asyncio.sleep(1.0)
 
@@ -168,7 +168,7 @@ async def test_browser_download_page(test_client: httpx.AsyncClient, websocket_c
         ws.send_json({
             'file_name': file_metadata.name,
             'file_size': file_metadata.size,
-            'file_type': file_metadata.content_type
+            'file_type': file_metadata.type
         })
         await asyncio.sleep(1.0)
 

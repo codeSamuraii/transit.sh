@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse, PlainTextResponse
+from pydantic import ValidationError
 
 from lib.logging import get_logger
 from lib.callbacks import raise_http_exception
@@ -34,8 +35,8 @@ async def http_upload(request: Request, uid: str, filename: str):
     except KeyError as e:
         log.error("△ Cannot decode file metadata from HTTP headers.", exc_info=e)
         raise HTTPException(status_code=400, detail="Cannot decode file metadata from HTTP headers.")
-    except ValueError as e:
-        log.error("△ Invalid file size.", exc_info=e)
+    except ValidationError as e:
+        log.error("△ Invalid file metadata.", exc_info=e)
         raise HTTPException(status_code=400, detail="Invalid file metadata.")
 
     if file.size > 1024**3:
@@ -48,7 +49,7 @@ async def http_upload(request: Request, uid: str, filename: str):
     except KeyError as e:
         log.warning("△ Transfer ID is already used.")
         raise HTTPException(status_code=409, detail="Transfer ID is already used.")
-    except (ValueError, TypeError) as e:
+    except (TypeError, ValidationError) as e:
         log.error("△ Invalid transfer ID or file metadata.", exc_info=e)
         raise HTTPException(status_code=400, detail="Invalid transfer ID or file metadata.")
 
@@ -90,7 +91,7 @@ async def http_download(request: Request, uid: str):
         transfer = await FileTransfer.get(uid)
     except KeyError:
         raise HTTPException(status_code=404, detail="Transfer not found.")
-    except (ValueError, TypeError) as e:
+    except (TypeError, ValidationError) as e:
         log.error("▼ Invalid transfer ID.", exc_info=e)
         raise HTTPException(status_code=400, detail="Invalid transfer ID.")
     else:

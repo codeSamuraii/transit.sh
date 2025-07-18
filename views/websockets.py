@@ -2,6 +2,7 @@ import asyncio
 import warnings
 from json import JSONDecodeError
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect, BackgroundTasks
+from pydantic import ValidationError
 
 from lib.logging import get_logger
 from lib.callbacks import send_error_and_close
@@ -25,7 +26,7 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     try:
         header = await websocket.receive_json()
         file = FileMetadata.get_from_json(header)
-    except (JSONDecodeError, KeyError, RuntimeError) as e:
+    except (JSONDecodeError, KeyError, RuntimeError, ValidationError) as e:
         log.warning("△ Cannot decode file metadata JSON header.", exc_info=e)
         await websocket.send_text("Error: Cannot decode file metadata JSON header.")
         return
@@ -38,7 +39,7 @@ async def websocket_upload(websocket: WebSocket, uid: str):
         log.warning("△ Transfer ID is already used.")
         await websocket.send_text("Error: Transfer ID is already used.")
         return
-    except (ValueError, TypeError) as e:
+    except (TypeError, ValidationError) as e:
         log.error("△ Invalid transfer ID or file metadata.", exc_info=e)
         await websocket.send_text("Error: Invalid transfer ID or file metadata.")
         return

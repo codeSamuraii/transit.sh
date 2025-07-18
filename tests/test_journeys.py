@@ -18,7 +18,7 @@ async def test_websocket_upload_http_download(test_client: httpx.AsyncClient, we
             ws.send_json({
                 'file_name': file_metadata.name,
                 'file_size': file_metadata.size,
-                'file_type': file_metadata.content_type
+                'file_type': file_metadata.type
             })
             await asyncio.sleep(1.0)
 
@@ -72,7 +72,7 @@ async def test_http_upload_http_download(test_client: httpx.AsyncClient):
 
     async def sender():
         headers = {
-            'Content-Type': file_metadata.content_type,
+            'Content-Type': file_metadata.type,
             'Content-Length': str(file_metadata.size)
         }
         async with test_client.stream("PUT", f"/{uid}/{file_metadata.name}", content=file_content, headers=headers) as response:
