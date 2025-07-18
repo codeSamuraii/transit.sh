@@ -68,22 +68,36 @@ function handleFiles(files, elements) {
 
 // Transfer ID generation
 function generateTransferId() {
-    const adjectives = [
-        'misty', 'empty', 'dry', 'dark', 'icy', 'quiet', 'white', 'cool', 'dawn', 'wispy', 'blue','cold', 'damp', 'green',
-        'long', 'late', 'bold', 'muddy', 'old', 'red', 'rough', 'still', 'small', 'shy', 'wild', 'black', 'young', 'holy'
-    ];
-    const nouns = [
-        'river', 'breeze', 'moon', 'rain', 'wind', 'sea', 'snow', 'lake', 'sunset', 'pine', 'shadow', 'leaf', 'dawn',
-        'forest', 'hill', 'cloud', 'meadow', 'sun', 'glade', 'bird', 'brook', 'bush', 'dew', 'dust', 'field', 'fire',
-        'flower', 'grass', 'haze', 'night', 'pond', 'sound', 'sky', 'surf', 'violet', 'water', 'wave', 'wood', 'dream'
-    ];
+    // Generate a UUID to get a high-entropy random value.
+    const uuid = self.crypto.randomUUID();
+    const hex = uuid.replace(/-/g, ''); // We only need the hex digits
 
-    // Generate a random transfer ID in the format: adjective-noun-number
-    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const noun = nouns[Math.floor(Math.random() * nouns.length)];
-    const num = Math.floor(Math.random() * 100);
+    const consonants = 'bcdfghjklmnpqrstvwxyz';
+    const vowels = 'aeiou';
 
-    return `${adj}-${noun}-${num}`;
+    // Function to create a pronounceable "word" from a hex string segment.
+    const createWord = (hexSegment) => {
+        let word = '';
+        for (let i = 0; i < hexSegment.length; i++) {
+            const charCode = parseInt(hexSegment[i], 16);
+            if (i % 2 === 0) { // Consonant
+                word += consonants[charCode % consonants.length];
+            } else { // Vowel
+                word += vowels[charCode % vowels.length];
+            }
+        }
+        return word;
+    };
+
+    // Create two 6-letter words from the first 12 characters of the UUID hex.
+    const word1 = createWord(hex.substring(0, 6));
+    const word2 = createWord(hex.substring(6, 12));
+
+    // Use the next 4 hex characters for a number between 0 and 999.
+    // This gives a larger range than the original 0-99.
+    const num = parseInt(hex.substring(12, 15), 16) % 1000;
+
+    return `${word1}-${word2}-${num}`;
 }
 
 // UI updates
