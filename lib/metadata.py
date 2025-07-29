@@ -4,11 +4,11 @@ from typing import Optional, Self, Annotated
 
 
 class FileMetadata(BaseModel):
-    name: StrictStr = Field(description="File name", min_length=2, max_length=255, validation_alias=AliasChoices('name', 'file_name'))
-    size: ByteSize = Field(description="Size in bytes", gt=0,validation_alias=AliasChoices('size', 'file_size'))
-    type: StrictStr = Field(description="MIME type", default='application/octet-stream',validation_alias=AliasChoices('type', 'file_type', 'content_type'))
+    name: StrictStr = Field(description="File name", min_length=2, max_length=255)
+    size: ByteSize = Field(description="Size in bytes", gt=0)
+    type: StrictStr = Field(description="MIME type", default='application/octet-stream')
 
-    model_config = ConfigDict(validate_by_name=True, populate_by_name=True)
+    model_config = ConfigDict(title="File transfer metadata", alias_generator=lambda s: f'file_{s}', populate_by_name=True, validate_by_name=True)
 
     @field_validator('name')
     @classmethod

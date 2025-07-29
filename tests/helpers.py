@@ -1,6 +1,7 @@
+import asyncio
 from string import ascii_letters
 from itertools import islice, repeat, chain
-from typing import Tuple, Iterable, Iterator
+from typing import Tuple, Iterable, AsyncIterator
 from annotated_types import T
 
 from lib.metadata import FileMetadata
@@ -19,12 +20,8 @@ def generate_test_file(size_in_kb: int = 10) -> tuple[bytes, FileMetadata]:
     return content, metadata
 
 
-def batched(iterable: Iterable[T], chunk_size: int) -> Iterator[Tuple[T, ...]]:
-    "Batch data into lists of length n. The last batch may be shorter."
-    # batched('ABCDEFG', 3) --> ABC DEF G
-    it = iter(iterable)
-    while True:
-        batch = bytes(islice(it, chunk_size))
-        if not batch:
-            return
-        yield batch
+async def chunks(data: bytes, chunk_size: int = 1024) -> AsyncIterator[bytes]:
+    """Yield successive chunks of data."""
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i + chunk_size]
+        await asyncio.sleep(0)

@@ -137,6 +137,9 @@ class FileTransfer:
             self.warning(f"▼ Timeout during download.")
             await on_error("Timeout during download.")
 
+        else:
+            await asyncio.sleep(1.0)
+
     async def cleanup(self):
         try:
             await asyncio.wait_for(self.store.cleanup(), timeout=30.0)
