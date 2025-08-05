@@ -8,7 +8,7 @@ def test_file_metadata_creation():
     metadata = FileMetadata(
         name="test.txt",
         size=1024,
-        content_type="text/plain"
+        type="text/plain"
     )
     assert metadata.name == "test.txt"
     assert metadata.size == 1024
@@ -35,7 +35,7 @@ def test_file_metadata_json_serialization():
     metadata = FileMetadata(
         name="test.txt",
         size=1024,
-        content_type="text/plain"
+        type="text/plain"
     )
 
     json_str = metadata.to_json()

@@ -69,7 +69,7 @@ curl -JLO https://transit.sh/<span class="code-string">&lt;your-chosen-id&gt;</s
                     <p><small>The <code>-JLO</code> flags downloads the file with its original name and follows redirects.</small></p>
                     <div class="code-block">
                         <code><span class="code-comment"># Example</span>
-curl -T <span class="code-variable">/music/song.mp3</span> https://transit.sh/<span class="code-string">music-for-dad</span>/
+curl -T <span class="code-variable">/music/song.mp3</span> https://transit.sh/<span class="code-string">music-for-dad</span>/ --expect100-timeout 300
 curl -JLO https://transit.sh/<span class="code-string">music-for-dad</span>/</code>
                     </div>
                 </div>

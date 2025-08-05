@@ -42,13 +42,13 @@ class Store:
         while await self.redis.llen(self._k_queue) >= maxsize:
             await asyncio.sleep(0.5)
 
-    async def put_in_queue(self, data: bytes, maxsize: int = 16, timeout: float = 10.0) -> None:
+    async def put_in_queue(self, data: bytes, maxsize: int = 16, timeout: float = 20.0) -> None:
         """Add data to the transfer queue with backpressure control."""
         async with asyncio.timeout(timeout):
             await self._wait_for_queue_space(maxsize)
         await self.redis.lpush(self._k_queue, data)
 
-    async def get_from_queue(self, timeout: float = 10.0) -> bytes:
+    async def get_from_queue(self, timeout: float = 20.0) -> bytes:
         """Get data from the transfer queue with timeout."""
         result = await self.redis.brpop([self._k_queue], timeout=timeout)
         if not result:

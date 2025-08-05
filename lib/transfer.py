@@ -1,11 +1,29 @@
 import asyncio
 from starlette.responses import ClientDisconnect
 from starlette.websockets import WebSocketDisconnect
-from typing import AsyncIterator, Callable, Awaitable
+from typing import AsyncIterator, Callable, Awaitable, Optional
 
 from lib.store import Store
 from lib.logging import get_logger
 from lib.metadata import FileMetadata
+
+
+class FileTransferError(Exception):
+    """Base class for file transfer errors."""
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        super().__init__(*args)
+        for name, value in kwargs.items():
+            setattr(self, name, value)
+
+    def __str__(self):
+        kwargs_str = ', '.join(f"{k}={v}" for k, v in self.kwargs.items())
+        details = f" - {kwargs_str}" if kwargs_str else ''
+        return super().__str__() + details
+
+    def __repr__(self):
+        return self.__class__.__name__ + f"({', '.join(map(repr, self.args))}, {self.kwargs})"
 
 
 class FileTransfer:
@@ -86,27 +104,33 @@ class FileTransfer:
                     break
 
                 if await self.is_interrupted():
-                    raise ClientDisconnect("Transfer was interrupted by the receiver.")
+                    raise FileTransferError("Transfer was interrupted by the receiver.", propagate=False, shutdown=True)
 
                 await self.store.put_in_queue(chunk)
                 self.bytes_uploaded += len(chunk)
 
             if self.bytes_uploaded < self.file.size:
-                raise ClientDisconnect("Received less data than expected.")
+                raise FileTransferError("Received less data than expected.", propagate=True, shutdown=False)
 
             self.debug(f"△ End of upload, sending done marker.")
             await self.store.put_in_queue(self.DONE_FLAG)
 
         except (ClientDisconnect, WebSocketDisconnect) as e:
-            self.warning(f"△ Upload error: {str(e)}")
+            self.error(f"△ Unexpected upload error: {e}")
             await self.store.put_in_queue(self.DEAD_FLAG)
-            await on_error(e)
 
         except asyncio.TimeoutError as e:
             self.warning(f"△ Timeout during upload.")
             await on_error("Timeout during upload.")
 
-        else:
+        except FileTransferError as e:
+            self.warning(f"△ Upload error: {e}")
+            if e.propagate:
+                await self.store.put_in_queue(self.DEAD_FLAG)
+            if e.shutdown:
+                await on_error(e)
+
+        finally:
             await asyncio.sleep(1.0)
 
     async def supply_download(self, on_error: Callable[[Exception | str], Awaitable[None]]) -> AsyncIterator[bytes]:
@@ -117,10 +141,10 @@ class FileTransfer:
                 chunk = await self.store.get_from_queue()
 
                 if chunk == self.DEAD_FLAG:
-                    raise ClientDisconnect("Sender disconnected.")
+                    raise FileTransferError("Sender disconnected.")
 
                 if chunk == self.DONE_FLAG and self.bytes_downloaded < self.file.size:
-                    raise ClientDisconnect("Received less data than expected.")
+                    raise FileTransferError("Received less data than expected.")
 
                 elif chunk == self.DONE_FLAG:
                     self.debug(f"▼ Done marker received, ending download.")
@@ -130,14 +154,18 @@ class FileTransfer:
                 yield chunk
 
         except (ClientDisconnect, WebSocketDisconnect) as e:
-            self.warning(f"▼ Download error: {e}")
-            await self.set_interrupted()
+            self.error(f"▼ Unexpected download error: {e}")
+            return
 
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as e:
             self.warning(f"▼ Timeout during download.")
-            await on_error("Timeout during download.")
+            self.debug("Debug info:", exc_info=e, stack_info=True)
+            await on_error(e)
 
-        else:
+        except FileTransferError as e:
+            self.warning(f"▼ Download error: {e}")
+
+        finally:
             await asyncio.sleep(1.0)
 
     async def cleanup(self):
@@ -148,10 +176,10 @@ class FileTransfer:
             pass
 
     async def finalize_download(self):
-        self.debug("▼ Finalizing download...")
+        # self.debug("▼ Finalizing download...")
         if self.bytes_downloaded < self.file.size and not await self.is_interrupted():
             self.warning("▼ Client disconnected before download was complete.")
             await self.set_interrupted()
 
-        await asyncio.sleep(4.0)
+        await asyncio.sleep(2.0)
         await self.cleanup()
