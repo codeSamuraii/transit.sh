@@ -1,7 +1,9 @@
+import string
 import asyncio
 import warnings
-from json import JSONDecodeError
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect, BackgroundTasks
+from fastapi.responses import PlainTextResponse
+from starlette.websockets import WebSocketClose
 from pydantic import ValidationError
 
 from lib.logging import get_logger
@@ -20,14 +22,26 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     A JSON header with file metadata should be sent first.
     Then, the client must wait for the signal before sending file chunks.
     """
+    if any(char not in string.ascii_letters + string.digits + '-' for char in uid):
+        await websocket.send_denial_response(PlainTextResponse(
+            "Invalid transfer ID. Must only contain alphanumeric characters and hyphens.",
+            status_code=400
+        ))
+        return WebSocketClose(code=1006, reason="Invalid transfer ID")
+
     await websocket.accept()
     log.debug(f"△ Websocket upload request.")
 
     try:
         header = await websocket.receive_json()
         file = FileMetadata.get_from_json(header)
-    except (JSONDecodeError, KeyError, RuntimeError, ValidationError) as e:
-        log.warning("△ Cannot decode file metadata JSON header.", exc_info=e)
+
+    except ValidationError as e:
+        log.warning("△ Invalid file metadata JSON header.", exc_info=e)
+        await websocket.send_text("Error: Invalid file metadata JSON header.")
+        return
+    except Exception as e:
+        log.error("△ Cannot decode file metadata JSON header.", exc_info=e)
         await websocket.send_text("Error: Cannot decode file metadata JSON header.")
         return
 
