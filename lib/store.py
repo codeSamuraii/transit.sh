@@ -112,9 +112,12 @@ class Store:
 
     async def set_metadata(self, metadata: str) -> None:
         """Store transfer metadata."""
-        if int (await self.redis.exists(self._k_meta)) > 0:
-            raise KeyError(f"Metadata for transfer '{self.transfer_id}' already exists.")
-        await self.redis.set(self._k_meta, metadata, nx=True)
+        challenge = random.randbytes(8)
+        await self.redis.set(self._k_meta, challenge, nx=True)
+        if await self.redis.get(self._k_meta) == challenge:
+            await self.redis.set(self._k_meta, metadata, ex=300)
+        else:
+            raise KeyError("Metadata already set for this transfer.")
 
     async def get_metadata(self) -> str | None:
         """Retrieve transfer metadata."""
