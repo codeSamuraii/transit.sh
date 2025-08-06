@@ -155,7 +155,7 @@ class FileTransfer:
 
         except (ClientDisconnect, WebSocketDisconnect) as e:
             self.error(f"▼ Unexpected download error: {e}")
-            return
+            await on_error(e)
 
         except asyncio.TimeoutError as e:
             self.warning(f"▼ Timeout during download.")
@@ -164,9 +164,7 @@ class FileTransfer:
 
         except FileTransferError as e:
             self.warning(f"▼ Download error: {e}")
-
-        finally:
-            await asyncio.sleep(1.0)
+            await on_error(e)
 
     async def cleanup(self):
         try:

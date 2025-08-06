@@ -16,13 +16,16 @@ def send_error_and_close(websocket: WebSocket) -> Callable[[Exception | str], Aw
     return _send_error_and_close
 
 
+class StreamTerminated(Exception):
+    """Raised to terminate a stream when an error occurs after the response has started."""
+    pass
+
 def raise_http_exception(request: Request) -> Callable[[Exception | str], Awaitable[None]]:
     """Callback to raise an HTTPException with a specific status code."""
 
     async def _raise_http_exception(error: Exception | str) -> None:
         message = str(error) if isinstance(error, Exception) else error
         code = error.status_code if isinstance(error, HTTPException) else 400
-        if not await request.is_disconnected():
-            raise HTTPException(status_code=code, detail=message)
+        raise StreamTerminated(f"{code}: {message}") from error
 
     return _raise_http_exception
