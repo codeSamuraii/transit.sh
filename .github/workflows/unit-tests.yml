@@ -27,5 +27,8 @@ jobs:
           pip install -r requirements.txt
           pip install pytest fakeredis
 
+      - name: Redis Server in GitHub Actions
+        uses: supercharge/redis-github-action@1.8.0
+
       - name: Run tests
         run: pytest --disable-pytest-warnings -v tests/
