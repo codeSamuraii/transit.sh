@@ -3,7 +3,6 @@ import asyncio
 import warnings
 from fastapi import WebSocket, APIRouter, WebSocketDisconnect, BackgroundTasks
 from fastapi.responses import PlainTextResponse
-from starlette.websockets import WebSocketClose
 from pydantic import ValidationError
 
 from lib.logging import get_logger
@@ -23,11 +22,9 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     Then, the client must wait for the signal before sending file chunks.
     """
     if any(char not in string.ascii_letters + string.digits + '-' for char in uid):
-        await websocket.send_denial_response(PlainTextResponse(
-            "Invalid transfer ID. Must only contain alphanumeric characters and hyphens.",
-            status_code=400
-        ))
-        return WebSocketClose(code=1006, reason="Invalid transfer ID")
+        log.debug(f"△ Invalid transfer ID: {uid}")
+        await websocket.close(code=1008, reason="Invalid transfer ID")
+        return
 
     await websocket.accept()
     log.debug(f"△ Websocket upload request.")
@@ -64,10 +61,15 @@ async def websocket_upload(websocket: WebSocket, uid: str):
         log.warning("△ Receiver did not connect in time.")
         await websocket.send_text(f"Error: Receiver did not connect in time.")
         return
+    except Exception as e:
+        log.error("△ Error while waiting for receiver connection.", exc_info=e)
+        await websocket.send_text("Error: Error while waiting for receiver connection.")
+        return
 
-    transfer.info("△ Starting upload...")
+    transfer.debug("△ Sending go-ahead...")
     await websocket.send_text("Go for file chunks")
 
+    transfer.info("△ Starting upload...")
     await transfer.collect_upload(
         stream=websocket.iter_bytes(),
         on_error=send_error_and_close(websocket),
