@@ -22,7 +22,7 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     Then, the client must wait for the signal before sending file chunks.
     """
     if any(char not in string.ascii_letters + string.digits + '-' for char in uid):
-        log.debug(f"△ Invalid transfer ID: {uid}")
+        log.debug(f"△ Invalid transfer ID.")
         await websocket.close(code=1008, reason="Invalid transfer ID")
         return
 

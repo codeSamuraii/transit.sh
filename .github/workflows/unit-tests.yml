@@ -31,4 +31,4 @@ jobs:
         uses: supercharge/redis-github-action@1.8.0
 
       - name: Run tests
-        run: pytest --disable-pytest-warnings -v tests/
+        run: pytest -s -v --tb=short tests/
