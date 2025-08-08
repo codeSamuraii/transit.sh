@@ -3,10 +3,10 @@ import asyncio
 import redis.asyncio as redis
 from typing import Optional, Annotated
 
-from lib.logging import get_logger
+from lib.logging import HasLogging, get_logger
 
 
-class Store:
+class Store(metaclass=HasLogging, name_from='transfer_id'):
     """
     Redis-based store for file transfer queues and events.
     Handles data queuing and event signaling for transfer coordination.
@@ -17,7 +17,6 @@ class Store:
     def __init__(self, transfer_id: str):
         self.transfer_id = transfer_id
         self.redis = self.get_redis()
-        self.log = get_logger(transfer_id)
 
         self._k_queue = self.key('queue')
         self._k_meta = self.key('metadata')
@@ -77,12 +76,12 @@ class Store:
         async def _poll_marker():
             while not await self.redis.exists(event_marker_key):
                 await asyncio.sleep(1)
-            self.log.debug(f">> POLL: Event '{event_name}' fired.")
+            self.debug(f">> POLL: Event '{event_name}' fired.")
 
         async def _listen_for_message():
             async for message in pubsub.listen():
                 if message and message['type'] == 'message':
-                    self.log.debug(f">> SUB : Received message for event '{event_name}'.")
+                    self.debug(f">> SUB : Received message for event '{event_name}'.")
                     return
 
         poll_marker = asyncio.wait_for(_poll_marker(), timeout=timeout)
@@ -98,7 +97,7 @@ class Store:
                 task.cancel()
 
         except asyncio.TimeoutError:
-            self.log.error(f"Timeout waiting for event '{event_name}' after {timeout} seconds.")
+            self.error(f"Timeout waiting for event '{event_name}' after {timeout} seconds.")
             for task in tasks:
                 task.cancel()
             raise
@@ -182,6 +181,6 @@ class Store:
                 break
 
         if keys_to_delete:
-            self.log.debug(f"- Cleaning up {len(keys_to_delete)} keys")
+            self.debug(f"- Cleaning up {len(keys_to_delete)} keys")
             return await self.redis.delete(*keys_to_delete)
         return 0

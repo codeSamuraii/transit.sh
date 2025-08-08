@@ -4,8 +4,10 @@ from starlette.websockets import WebSocketDisconnect
 from typing import AsyncIterator, Callable, Awaitable, Optional
 
 from lib.store import Store
-from lib.logging import get_logger
 from lib.metadata import FileMetadata
+from lib.logging import HasLogging, get_logger
+
+logger = get_logger('transfer')
 
 
 class FileTransferError(Exception):
@@ -26,7 +28,8 @@ class FileTransferError(Exception):
         return self.__class__.__name__ + f"({', '.join(map(repr, self.args))}, {self.kwargs})"
 
 
-class FileTransfer:
+class FileTransfer(metaclass=HasLogging, name_from='uid'):
+    """Handles file transfers, including metadata queries and data streaming."""
 
     DONE_FLAG = b'\x00\xFF'
     DEAD_FLAG = b'\xDE\xAD'
@@ -37,9 +40,6 @@ class FileTransfer:
         self.store = Store(self.uid)
         self.bytes_uploaded = 0
         self.bytes_downloaded = 0
-
-        log = get_logger(self.uid)
-        self.debug, self.info, self.warning, self.error = log.debug, log.info, log.warning, log.error
 
     @classmethod
     async def create(cls, uid: str, file: FileMetadata):
