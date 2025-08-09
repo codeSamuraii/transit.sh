@@ -1,9 +1,7 @@
 import string
-import asyncio
 import warnings
-from fastapi import WebSocket, APIRouter, WebSocketDisconnect, BackgroundTasks
-from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
+from fastapi import WebSocket, APIRouter, WebSocketDisconnect, BackgroundTasks
 
 from lib.logging import get_logger
 from lib.callbacks import send_error_and_close
@@ -57,7 +55,7 @@ async def websocket_upload(websocket: WebSocket, uid: str):
 
     try:
         await transfer.wait_for_client_connected()
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("△ Receiver did not connect in time.")
         await websocket.send_text(f"Error: Receiver did not connect in time.")
         return
