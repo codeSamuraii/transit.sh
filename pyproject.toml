@@ -1,0 +1,32 @@
+[project]
+name = "transit-sh"
+version = "0.1.0"
+description = "File transfer service without intermediate storage"
+authors = [{name = "Rémi Héneault",email = "remi@heneault.fr"}]
+
+requires-python = ">=3.13"
+dependencies = [
+    "uvloop (>=0.21.0, <1.0.0)",
+    "uvicorn (>=0.35.0, <1.0.0)",
+    "websockets (>=15.0.1, <16.0.0)",
+    "httptools (>=0.6.4, <0.7.0)",
+    "fastapi (>=0.116.1, <1.0.0)",
+    "pydantic (>=2.11.7, <3.0.0)",
+    "redis (>=6.3.0, <7.0.0)",
+    "anyio (>=4.10.0, <5.0.0)",
+    "jinja2 (>=3.1.6, <4.0.0)",
+    "sentry-sdk (>=2.34.1, <3.0.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+httpx = "*"
+rich = "*"
+
