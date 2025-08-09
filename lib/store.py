@@ -3,10 +3,10 @@ import asyncio
 import redis.asyncio as redis
 from typing import Optional, Annotated
 
-from lib.logging import get_logger
+from lib.logging import HasLogging, get_logger
 
 
-class Store:
+class Store(metaclass=HasLogging, name_from='transfer_id'):
     """
     Redis-based store for file transfer queues and events.
     Handles data queuing and event signaling for transfer coordination.
@@ -17,7 +17,6 @@ class Store:
     def __init__(self, transfer_id: str):
         self.transfer_id = transfer_id
         self.redis = self.get_redis()
-        self.log = get_logger(transfer_id)
 
         self._k_queue = self.key('queue')
         self._k_meta = self.key('metadata')
@@ -42,13 +41,13 @@ class Store:
         while await self.redis.llen(self._k_queue) >= maxsize:
             await asyncio.sleep(0.5)
 
-    async def put_in_queue(self, data: bytes, maxsize: int = 16, timeout: float = 10.0) -> None:
+    async def put_in_queue(self, data: bytes, maxsize: int = 16, timeout: float = 20.0) -> None:
         """Add data to the transfer queue with backpressure control."""
         async with asyncio.timeout(timeout):
             await self._wait_for_queue_space(maxsize)
         await self.redis.lpush(self._k_queue, data)
 
-    async def get_from_queue(self, timeout: float = 10.0) -> bytes:
+    async def get_from_queue(self, timeout: float = 20.0) -> bytes:
         """Get data from the transfer queue with timeout."""
         result = await self.redis.brpop([self._k_queue], timeout=timeout)
         if not result:
@@ -77,12 +76,12 @@ class Store:
         async def _poll_marker():
             while not await self.redis.exists(event_marker_key):
                 await asyncio.sleep(1)
-            self.log.debug(f">> POLL: Event '{event_name}' fired.")
+            self.debug(f">> POLL: Event '{event_name}' fired.")
 
         async def _listen_for_message():
             async for message in pubsub.listen():
                 if message and message['type'] == 'message':
-                    self.log.debug(f">> SUB : Received message for event '{event_name}'.")
+                    self.debug(f">> SUB : Received message for event '{event_name}'.")
                     return
 
         poll_marker = asyncio.wait_for(_poll_marker(), timeout=timeout)
@@ -98,7 +97,7 @@ class Store:
                 task.cancel()
 
         except asyncio.TimeoutError:
-            self.log.error(f"Timeout waiting for event '{event_name}' after {timeout} seconds.")
+            self.error(f"Timeout waiting for event '{event_name}' after {timeout} seconds.")
             for task in tasks:
                 task.cancel()
             raise
@@ -112,9 +111,12 @@ class Store:
 
     async def set_metadata(self, metadata: str) -> None:
         """Store transfer metadata."""
-        if int (await self.redis.exists(self._k_meta)) > 0:
-            raise KeyError(f"Metadata for transfer '{self.transfer_id}' already exists.")
-        await self.redis.set(self._k_meta, metadata, nx=True)
+        challenge = random.randbytes(8)
+        await self.redis.set(self._k_meta, challenge, nx=True)
+        if await self.redis.get(self._k_meta) == challenge:
+            await self.redis.set(self._k_meta, metadata, ex=300)
+        else:
+            raise KeyError("Metadata already set for this transfer.")
 
     async def get_metadata(self) -> str | None:
         """Retrieve transfer metadata."""
@@ -179,6 +181,6 @@ class Store:
                 break
 
         if keys_to_delete:
-            self.log.debug(f"- Cleaning up {len(keys_to_delete)} keys")
+            self.debug(f"- Cleaning up {len(keys_to_delete)} keys")
             return await self.redis.delete(*keys_to_delete)
         return 0

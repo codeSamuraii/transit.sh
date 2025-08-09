@@ -1,39 +1,41 @@
 import asyncio
 import httpx
+import json
 import pytest
 
 from tests.helpers import generate_test_file
+from tests.ws_client import WebSocketTestClient
 
 
 @pytest.mark.anyio
-async def test_websocket_upload_http_download(test_client: httpx.AsyncClient, websocket_client):
+async def test_websocket_upload_http_download(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
     """Tests a browser-like upload (WebSocket) and a cURL-like download (HTTP)."""
     uid = "ws-http-journey"
     file_content, file_metadata = generate_test_file(size_in_kb=64)
 
     async def sender():
-        with websocket_client.websocket_connect(f"/send/{uid}") as ws:
+        async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
             await asyncio.sleep(0.1)
 
-            ws.send_json({
+            await ws.websocket.send(json.dumps({
                 'file_name': file_metadata.name,
                 'file_size': file_metadata.size,
                 'file_type': file_metadata.type
-            })
+            }))
             await asyncio.sleep(1.0)
 
             # Wait for receiver to connect
-            response = ws.receive_text()
+            response = await ws.websocket.recv()
             await asyncio.sleep(0.1)
             assert response == "Go for file chunks"
 
             # Send file
             chunk_size = 4096
             for i in range(0, len(file_content), chunk_size):
-                ws.send_bytes(file_content[i:i + chunk_size])
+                await ws.websocket.send(file_content[i:i + chunk_size])
                 await asyncio.sleep(0.025)
 
-            ws.send_bytes(b'')  # End of file
+            await ws.websocket.send(b'')  # End of file
             await asyncio.sleep(0.1)
 
     async def receiver():

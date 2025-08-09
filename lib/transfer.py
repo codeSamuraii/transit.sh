@@ -1,14 +1,29 @@
 import asyncio
 from starlette.responses import ClientDisconnect
 from starlette.websockets import WebSocketDisconnect
-from typing import AsyncIterator, Callable, Awaitable
+from typing import AsyncIterator, Callable, Awaitable, Optional, Any
 
 from lib.store import Store
-from lib.logging import get_logger
 from lib.metadata import FileMetadata
+from lib.logging import HasLogging, get_logger
+logger = get_logger('transfer')
 
 
-class FileTransfer:
+class TransferError(Exception):
+    """Custom exception for transfer errors with optional propagation control."""
+    def __init__(self, *args, propagate: bool = False, **extra: Any) -> None:
+        super().__init__(*args)
+        self.propagate = propagate
+        self.extra = extra
+
+    @property
+    def shutdown(self) -> bool:
+        """Indicates if the transfer should be shut down (usually the opposite of `propagate`)."""
+        return self.extra.get('shutdown', not self.propagate)
+
+
+class FileTransfer(metaclass=HasLogging, name_from='uid'):
+    """Handles file transfers, including metadata queries and data streaming."""
 
     DONE_FLAG = b'\x00\xFF'
     DEAD_FLAG = b'\xDE\xAD'
@@ -19,9 +34,6 @@ class FileTransfer:
         self.store = Store(self.uid)
         self.bytes_uploaded = 0
         self.bytes_downloaded = 0
-
-        log = get_logger(self.uid)
-        self.debug, self.info, self.warning, self.error = log.debug, log.info, log.warning, log.error
 
     @classmethod
     async def create(cls, uid: str, file: FileMetadata):
@@ -86,27 +98,33 @@ class FileTransfer:
                     break
 
                 if await self.is_interrupted():
-                    raise ClientDisconnect("Transfer was interrupted by the receiver.")
+                    raise TransferError("Transfer was interrupted by the receiver.", propagate=False)
 
                 await self.store.put_in_queue(chunk)
                 self.bytes_uploaded += len(chunk)
 
             if self.bytes_uploaded < self.file.size:
-                raise ClientDisconnect("Received less data than expected.")
+                raise TransferError("Received less data than expected.", propagate=True)
 
             self.debug(f"△ End of upload, sending done marker.")
             await self.store.put_in_queue(self.DONE_FLAG)
 
         except (ClientDisconnect, WebSocketDisconnect) as e:
-            self.warning(f"△ Upload error: {str(e)}")
+            self.error(f"△ Unexpected upload error: {e}")
             await self.store.put_in_queue(self.DEAD_FLAG)
-            await on_error(e)
 
         except asyncio.TimeoutError as e:
             self.warning(f"△ Timeout during upload.")
             await on_error("Timeout during upload.")
 
-        else:
+        except TransferError as e:
+            self.warning(f"△ Upload error: {e}")
+            if e.propagate:
+                await self.store.put_in_queue(self.DEAD_FLAG)
+            else:
+                await on_error(e)
+
+        finally:
             await asyncio.sleep(1.0)
 
     async def supply_download(self, on_error: Callable[[Exception | str], Awaitable[None]]) -> AsyncIterator[bytes]:
@@ -117,10 +135,10 @@ class FileTransfer:
                 chunk = await self.store.get_from_queue()
 
                 if chunk == self.DEAD_FLAG:
-                    raise ClientDisconnect("Sender disconnected.")
+                    raise TransferError("Sender disconnected.")
 
                 if chunk == self.DONE_FLAG and self.bytes_downloaded < self.file.size:
-                    raise ClientDisconnect("Received less data than expected.")
+                    raise TransferError("Received less data than expected.")
 
                 elif chunk == self.DONE_FLAG:
                     self.debug(f"▼ Done marker received, ending download.")
@@ -129,16 +147,14 @@ class FileTransfer:
                 self.bytes_downloaded += len(chunk)
                 yield chunk
 
-        except (ClientDisconnect, WebSocketDisconnect) as e:
-            self.warning(f"▼ Download error: {e}")
-            await self.set_interrupted()
+        except Exception as e:
+            self.error(f"▼ Unexpected download error!", exc_info=True)
+            self.debug("Debug info:", stack_info=True)
+            await on_error(e)
 
-        except asyncio.TimeoutError:
-            self.warning(f"▼ Timeout during download.")
-            await on_error("Timeout during download.")
-
-        else:
-            await asyncio.sleep(1.0)
+        except TransferError as e:
+            self.warning(f"▼ Download error")
+            await on_error(e)
 
     async def cleanup(self):
         try:
@@ -148,10 +164,15 @@ class FileTransfer:
             pass
 
     async def finalize_download(self):
-        self.debug("▼ Finalizing download...")
+        # self.debug("▼ Finalizing download...")
         if self.bytes_downloaded < self.file.size and not await self.is_interrupted():
             self.warning("▼ Client disconnected before download was complete.")
             await self.set_interrupted()
 
-        await asyncio.sleep(4.0)
+        await self.cleanup()
+        # self.debug("▼ Finalizing download...")
+        if self.bytes_downloaded < self.file.size and not await self.is_interrupted():
+            self.warning("▼ Client disconnected before download was complete.")
+            await self.set_interrupted()
+
         await self.cleanup()

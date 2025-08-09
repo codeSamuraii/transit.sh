@@ -14,3 +14,6 @@ Dockerfile
 fly.toml
 .pytest_cache/
 *.instructions.md
+CLAUDE.md
+poetry.lock
+pyproject.toml
