@@ -1,8 +1,9 @@
-import asyncio
+import anyio
 from string import ascii_letters
 from itertools import islice, repeat, chain
 from typing import Tuple, Iterable, AsyncIterator
 from annotated_types import T
+import anyio.lowlevel
 
 from lib.metadata import FileMetadata
 
@@ -24,4 +25,4 @@ async def chunks(data: bytes, chunk_size: int = 1024) -> AsyncIterator[bytes]:
     """Yield successive chunks of data."""
     for i in range(0, len(data), chunk_size):
         yield data[i:i + chunk_size]
-        await asyncio.sleep(0)
+        await anyio.lowlevel.checkpoint()

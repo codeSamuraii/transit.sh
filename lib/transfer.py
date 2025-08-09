@@ -1,4 +1,4 @@
-import asyncio
+import anyio
 from starlette.responses import ClientDisconnect
 from starlette.websockets import WebSocketDisconnect
 from typing import AsyncIterator, Callable, Awaitable, Optional, Any
@@ -113,8 +113,8 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
             self.error(f"△ Unexpected upload error: {e}")
             await self.store.put_in_queue(self.DEAD_FLAG)
 
-        except asyncio.TimeoutError as e:
-            self.warning(f"△ Timeout during upload.")
+        except TimeoutError as e:
+            self.warning(f"△ Timeout during upload.", exc_info=True)
             await on_error("Timeout during upload.")
 
         except TransferError as e:
@@ -125,7 +125,7 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
                 await on_error(e)
 
         finally:
-            await asyncio.sleep(1.0)
+            await anyio.sleep(1.0)
 
     async def supply_download(self, on_error: Callable[[Exception | str], Awaitable[None]]) -> AsyncIterator[bytes]:
         self.bytes_downloaded = 0
@@ -158,8 +158,9 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
 
     async def cleanup(self):
         try:
-            await asyncio.wait_for(self.store.cleanup(), timeout=30.0)
-        except asyncio.TimeoutError:
+            with anyio.fail_after(30.0):
+                await self.store.cleanup()
+        except TimeoutError:
             self.warning(f"- Cleanup timed out.")
             pass
 

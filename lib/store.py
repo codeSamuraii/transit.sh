@@ -1,6 +1,7 @@
 import random
-import asyncio
+import anyio
 import redis.asyncio as redis
+from redis.asyncio.client import PubSub
 from typing import Optional, Annotated
 
 from lib.logging import HasLogging, get_logger
@@ -39,11 +40,11 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
 
     async def _wait_for_queue_space(self, maxsize: int) -> None:
         while await self.redis.llen(self._k_queue) >= maxsize:
-            await asyncio.sleep(0.5)
+            await anyio.sleep(0.5)
 
     async def put_in_queue(self, data: bytes, maxsize: int = 16, timeout: float = 20.0) -> None:
         """Add data to the transfer queue with backpressure control."""
-        async with asyncio.timeout(timeout):
+        with anyio.fail_after(timeout):
             await self._wait_for_queue_space(maxsize)
         await self.redis.lpush(self._k_queue, data)
 
@@ -51,7 +52,7 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
         """Get data from the transfer queue with timeout."""
         result = await self.redis.brpop([self._k_queue], timeout=timeout)
         if not result:
-            raise asyncio.TimeoutError("Timeout waiting for data")
+            raise TimeoutError("Timeout waiting for data")
 
         _, data = result
         return data
@@ -66,46 +67,37 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
         await self.redis.set(event_marker_key, '1', ex=int(expiry))
         await self.redis.publish(event_key, '1')
 
+    async def _poll_marker(self, event_key: str) -> None:
+        """Poll for event marker existence."""
+        event_marker_key = f'{event_key}:marker'
+        while not await self.redis.exists(event_marker_key):
+            await anyio.sleep(1)
+
+    async def _listen_for_message(self, pubsub: PubSub, event_key: str) -> None:
+        """Listen for pubsub messages."""
+        await pubsub.subscribe(event_key)
+        async for message in pubsub.listen():
+            if message and message['type'] == 'message':
+                return
+
     async def wait_for_event(self, event_name: str, timeout: float = 300.0) -> None:
         """Wait for an event to be set for this transfer."""
         event_key = self.key(event_name)
-        event_marker_key = f'{event_key}:marker'
         pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
-        await pubsub.subscribe(event_key)
-
-        async def _poll_marker():
-            while not await self.redis.exists(event_marker_key):
-                await asyncio.sleep(1)
-            self.debug(f">> POLL: Event '{event_name}' fired.")
-
-        async def _listen_for_message():
-            async for message in pubsub.listen():
-                if message and message['type'] == 'message':
-                    self.debug(f">> SUB : Received message for event '{event_name}'.")
-                    return
-
-        poll_marker = asyncio.wait_for(_poll_marker(), timeout=timeout)
-        listen_for_message = asyncio.wait_for(_listen_for_message(), timeout=timeout)
 
         try:
-            tasks = {
-                asyncio.create_task(poll_marker, name=f'poll_marker_{event_name}_{self.transfer_id}'),
-                asyncio.create_task(listen_for_message, name=f'listen_for_message_{event_name}_{self.transfer_id}')
-            }
-            _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in pending:
-                task.cancel()
+            with anyio.fail_after(timeout):
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(self._poll_marker, event_key)
+                    tg.start_soon(self._listen_for_message, pubsub, event_key)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.error(f"Timeout waiting for event '{event_name}' after {timeout} seconds.")
-            for task in tasks:
-                task.cancel()
             raise
 
         finally:
             await pubsub.unsubscribe(event_key)
             await pubsub.aclose()
-            await asyncio.gather(*tasks, return_exceptions=True)
 
     ## Metadata operations ##
 

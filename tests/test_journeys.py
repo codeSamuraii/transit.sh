@@ -1,4 +1,4 @@
-import asyncio
+import anyio
 import httpx
 import json
 import pytest
@@ -15,55 +15,55 @@ async def test_websocket_upload_http_download(test_client: httpx.AsyncClient, we
 
     async def sender():
         async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
 
             await ws.websocket.send(json.dumps({
                 'file_name': file_metadata.name,
                 'file_size': file_metadata.size,
                 'file_type': file_metadata.type
             }))
-            await asyncio.sleep(1.0)
+            await anyio.sleep(1.0)
 
             # Wait for receiver to connect
             response = await ws.websocket.recv()
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
             assert response == "Go for file chunks"
 
             # Send file
             chunk_size = 4096
             for i in range(0, len(file_content), chunk_size):
                 await ws.websocket.send(file_content[i:i + chunk_size])
-                await asyncio.sleep(0.025)
+                await anyio.sleep(0.025)
 
             await ws.websocket.send(b'')  # End of file
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
 
     async def receiver():
-        await asyncio.sleep(1.0)
+        await anyio.sleep(1.0)
         headers = {'User-Agent': 'Mozilla/5.0', 'Accept': '*/*'}
 
         async with test_client.stream("GET", f"/{uid}?download=true", headers=headers) as response:
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
 
             response.raise_for_status()
             assert response.headers['content-length'] == str(file_metadata.size)
             assert f"filename={file_metadata.name}" in response.headers['content-disposition']
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
 
             downloaded_content = b''
             async for chunk in response.aiter_bytes(4096):
                 if not chunk or len(downloaded_content) >= file_metadata.size:
                     break
                 downloaded_content += chunk
-                await asyncio.sleep(0.025)
+                await anyio.sleep(0.025)
 
             assert len(downloaded_content) == file_metadata.size
             assert downloaded_content == file_content
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
 
-    t1 = asyncio.create_task(asyncio.wait_for(sender(), timeout=15))
-    t2 = asyncio.create_task(asyncio.wait_for(receiver(), timeout=15))
-    await asyncio.gather(t1, t2, return_exceptions=True)
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(sender)
+        tg.start_soon(receiver)
 
 
 @pytest.mark.anyio
@@ -78,22 +78,22 @@ async def test_http_upload_http_download(test_client: httpx.AsyncClient):
             'Content-Length': str(file_metadata.size)
         }
         async with test_client.stream("PUT", f"/{uid}/{file_metadata.name}", content=file_content, headers=headers) as response:
-            await asyncio.sleep(1.0)
+            await anyio.sleep(1.0)
 
             response.raise_for_status()
             assert response.status_code == 200
-        await asyncio.sleep(0.1)
+        await anyio.sleep(0.1)
 
     async def receiver():
-        await asyncio.sleep(1.0)
+        await anyio.sleep(1.0)
         response = await test_client.get(f"/{uid}?download=true")
-        await asyncio.sleep(0.1)
+        await anyio.sleep(0.1)
 
         response.raise_for_status()
         assert response.content == file_content
         assert len(response.content) == file_metadata.size
-        await asyncio.sleep(0.1)
+        await anyio.sleep(0.1)
 
-    t1 = asyncio.create_task(asyncio.wait_for(sender(), timeout=15))
-    t2 = asyncio.create_task(asyncio.wait_for(receiver(), timeout=15))
-    await asyncio.gather(t1, t2, return_exceptions=True)
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(sender)
+        tg.start_soon(receiver)

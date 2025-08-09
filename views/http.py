@@ -1,5 +1,5 @@
 import string
-import asyncio
+import anyio
 from fastapi import Request, APIRouter
 from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
@@ -55,7 +55,7 @@ async def http_upload(request: Request, uid: str, filename: str):
 
     try:
         await transfer.wait_for_client_connected()
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("△ Receiver did not connect in time.")
         raise HTTPException(status_code=408, detail="Client did not connect in time.")
 

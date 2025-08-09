@@ -1,4 +1,4 @@
-import asyncio
+import anyio
 import json
 import pytest
 import httpx
@@ -69,7 +69,7 @@ async def test_transfer_id_already_used(websocket_client: WebSocketTestClient):
 
 #     # Override the timeout for the test to make it fail quickly
 #     async def mock_wait_for_client_connected(self):
-#         await asyncio.sleep(1.0)  # Short delay
+#         await anyio.sleep(1.0)  # Short delay
 #         raise asyncio.TimeoutError("Mocked timeout")
 
 #     from lib.transfer import FileTransfer
@@ -95,32 +95,32 @@ async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_cl
     async def sender():
         with pytest.raises(ConnectionClosedError, match="Transfer was interrupted by the receiver"):
             async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
-                await asyncio.sleep(0.1)
+                await anyio.sleep(0.1)
 
                 await ws.send_json({
                     'file_name': file_metadata.name,
                     'file_size': file_metadata.size,
                     'file_type': file_metadata.type
                 })
-                await asyncio.sleep(1.0)  # Allow receiver to connect
+                await anyio.sleep(1.0)  # Allow receiver to connect
 
                 response = await ws.recv()
-                await asyncio.sleep(0.1)
+                await anyio.sleep(0.1)
                 assert response == "Go for file chunks"
 
                 chunks = [file_content[i:i + 4096] for i in range(0, len(file_content), 4096)]
                 for chunk in chunks:
                     await ws.send_bytes(chunk)
-                    await asyncio.sleep(0.1)
+                    await anyio.sleep(0.1)
 
-                await asyncio.sleep(2.0)
+                await anyio.sleep(2.0)
 
     async def receiver():
-        await asyncio.sleep(1.0)
+        await anyio.sleep(1.0)
         headers = {'Accept': '*/*'}
 
         async with test_client.stream("GET", f"/{uid}?download=true", headers=headers) as response:
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
 
             response.raise_for_status()
             i = 0
@@ -131,11 +131,11 @@ async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_cl
                     i += 1
                     if i >= 5:
                         raise ClientDisconnect("Simulated disconnect")
-                    await asyncio.sleep(0.025)
+                    await anyio.sleep(0.025)
 
-    t1 = asyncio.create_task(asyncio.wait_for(sender(), timeout=15))
-    t2 = asyncio.create_task(asyncio.wait_for(receiver(), timeout=15))
-    await asyncio.gather(t1, t2)
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(sender)
+        tg.start_soon(receiver)
 
 
 @pytest.mark.anyio
@@ -146,18 +146,18 @@ async def test_prefetcher_request(test_client: httpx.AsyncClient, websocket_clie
 
     # Create a dummy transfer to get metadata
     async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
-        await asyncio.sleep(0.1)
+        await anyio.sleep(0.1)
 
         await ws.send_json({
             'file_name': file_metadata.name,
             'file_size': file_metadata.size,
             'file_type': file_metadata.type
         })
-        await asyncio.sleep(1.0)
+        await anyio.sleep(1.0)
 
         headers = {'User-Agent': 'facebookexternalhit/1.1'}
         response = await test_client.get(f"/{uid}", headers=headers)
-        await asyncio.sleep(0.1)
+        await anyio.sleep(0.1)
 
         assert response.status_code == 200
         assert "text/html" in response.headers['content-type']
@@ -172,18 +172,18 @@ async def test_browser_download_page(test_client: httpx.AsyncClient, websocket_c
     _, file_metadata = generate_test_file()
 
     async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
-        await asyncio.sleep(0.1)
+        await anyio.sleep(0.1)
 
         await ws.send_json({
             'file_name': file_metadata.name,
             'file_size': file_metadata.size,
             'file_type': file_metadata.type
         })
-        await asyncio.sleep(1.0)
+        await anyio.sleep(1.0)
 
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = await test_client.get(f"/{uid}", headers=headers)
-        await asyncio.sleep(0.1)
+        await anyio.sleep(0.1)
 
         assert response.status_code == 200
         assert "text/html" in response.headers['content-type']
