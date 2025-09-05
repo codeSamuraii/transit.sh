@@ -19,10 +19,10 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
         self.transfer_id = transfer_id
         self.redis = self.get_redis()
 
-        self._k_queue = self.key('queue')
-        self._k_meta = self.key('metadata')
-        self._k_cleanup = f'cleanup:{transfer_id}'
-        self._k_receiver_connected = self.key('receiver_connected')
+        self._k_stream = self.key('stream')
+        self._k_metadata = self.key('metadata')
+        self._k_position = self.key('position')
+        self._k_progress = self.key('progress')
 
     @classmethod
     def get_redis(cls) -> redis.Redis:
@@ -36,26 +36,26 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
         """Get the Redis key for this transfer with the provided name."""
         return f'transfer:{self.transfer_id}:{name}'
 
-    ## Queue operations ##
+    async def add_chunk(self, data: bytes) -> None:
+        """Add chunk to stream."""
+        # No maxlen limit - streams auto-expire after 5 minutes
+        await self.redis.xadd(self._k_stream, {'data': data})
 
-    async def _wait_for_queue_space(self, maxsize: int) -> None:
-        while await self.redis.llen(self._k_queue) >= maxsize:
-            await anyio.sleep(0.5)
+    async def stream_chunks(self, timeout_ms: int = 20000):
+        """Stream chunks from last position."""
+        position = await self.redis.get(self._k_position)
+        last_id = position.decode() if position else '0'
 
-    async def put_in_queue(self, data: bytes, maxsize: int = 16, timeout: float = 20.0) -> None:
-        """Add data to the transfer queue with backpressure control."""
-        with anyio.fail_after(timeout):
-            await self._wait_for_queue_space(maxsize)
-        await self.redis.lpush(self._k_queue, data)
+        while True:
+            result = await self.redis.xread({self._k_stream: last_id}, block=timeout_ms)
+            if not result:
+                raise TimeoutError("Stream read timeout")
 
-    async def get_from_queue(self, timeout: float = 20.0) -> bytes:
-        """Get data from the transfer queue with timeout."""
-        result = await self.redis.brpop([self._k_queue], timeout=timeout)
-        if not result:
-            raise TimeoutError("Timeout waiting for data")
-
-        _, data = result
-        return data
+            _, messages = result[0]
+            for message_id, fields in messages:
+                last_id = message_id
+                await self.redis.set(self._k_position, last_id, ex=300)
+                yield fields[b'data']
 
     ## Event operations ##
 
@@ -99,80 +99,35 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
             await pubsub.unsubscribe(event_key)
             await pubsub.aclose()
 
-    ## Metadata operations ##
-
     async def set_metadata(self, metadata: str) -> None:
         """Store transfer metadata."""
-        challenge = random.randbytes(8)
-        await self.redis.set(self._k_meta, challenge, nx=True)
-        if await self.redis.get(self._k_meta) == challenge:
-            await self.redis.set(self._k_meta, metadata, ex=300)
-        else:
-            raise KeyError("Metadata already set for this transfer.")
+        if not await self.redis.set(self._k_metadata, metadata, nx=True, ex=300):
+            raise KeyError("Transfer already exists")
 
     async def get_metadata(self) -> str | None:
-        """Retrieve transfer metadata."""
-        return await self.redis.get(self._k_meta)
+        """Get transfer metadata."""
+        return await self.redis.get(self._k_metadata)
 
-    ## Transfer state operations ##
+    async def save_progress(self, bytes_downloaded: int) -> None:
+        """Save download progress."""
+        await self.redis.set(self._k_progress, str(bytes_downloaded), ex=300)
 
-    async def set_receiver_connected(self) -> bool:
-        """
-        Mark that a receiver has connected for this transfer.
-        Returns True if the flag was set, False if it was already created.
-        """
-        return bool(await self.redis.set(self._k_receiver_connected, '1', ex=300, nx=True))
+    async def get_progress(self) -> int:
+        """Get download progress."""
+        progress = await self.redis.get(self._k_progress)
+        return int(progress) if progress else 0
 
-    async def is_receiver_connected(self) -> bool:
-        """Check if a receiver has already connected."""
-        return await self.redis.exists(self._k_receiver_connected) > 0
-
-    async def set_completed(self) -> None:
-        """Mark the transfer as completed."""
-        await self.redis.set(f'completed:{self.transfer_id}', '1', ex=300, nx=True)
-
-    async def is_completed(self) -> bool:
-        """Check if the transfer is marked as completed."""
-        return await self.redis.exists(f'completed:{self.transfer_id}') > 0
-
-    async def set_interrupted(self) -> None:
-        """Mark the transfer as interrupted."""
-        await self.redis.set(f'interrupt:{self.transfer_id}', '1', ex=300, nx=True)
-        await self.redis.ltrim(self._k_queue, 0, 0)
-
-    async def is_interrupted(self) -> bool:
-        """Check if the transfer was interrupted."""
-        return await self.redis.exists(f'interrupt:{self.transfer_id}') > 0
-
-    ## Cleanup operations ##
-
-    async def cleanup_started(self) -> bool:
-        """
-        Check if cleanup has already been initiated for this transfer.
-        This uses a set/get pattern with challenge to avoid race conditions.
-        """
-        challenge = random.randbytes(8)
-        await self.redis.set(self._k_cleanup, challenge, ex=60, nx=True)
-        if await self.redis.get(self._k_cleanup) == challenge:
-            return False
-        return True
-
-    async def cleanup(self) -> int:
-        """Remove all keys related to this transfer."""
-        if await self.cleanup_started():
-            return 0
-
+    async def cleanup(self) -> None:
+        """Delete all transfer data."""
         pattern = self.key('*')
-        keys_to_delete = set()
-
         cursor = 0
+        keys = []
+
         while True:
-            cursor, keys = await self.redis.scan(cursor, match=pattern)
-            keys_to_delete |= set(keys)
+            cursor, batch = await self.redis.scan(cursor, match=pattern)
+            keys.extend(batch)
             if cursor == 0:
                 break
 
-        if keys_to_delete:
-            self.debug(f"- Cleaning up {len(keys_to_delete)} keys")
-            return await self.redis.delete(*keys_to_delete)
-        return 0
+        if keys:
+            await self.redis.delete(*keys)

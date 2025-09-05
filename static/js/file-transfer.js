@@ -1,4 +1,16 @@
 const DEBUG = true;
+
+// Configuration constants
+const CHUNK_SIZE_MOBILE = 32 * 1024;      // 32KB for mobile devices
+const CHUNK_SIZE_DESKTOP = 64 * 1024;     // 64KB for desktop devices
+const BUFFER_THRESHOLD_MOBILE = CHUNK_SIZE_MOBILE * 16;
+const BUFFER_THRESHOLD_DESKTOP = CHUNK_SIZE_DESKTOP * 16;
+const BUFFER_CHECK_INTERVAL = 200;        // 200ms interval for buffer checks
+const SHARE_LINK_FOCUS_DELAY = 300;       // 300ms delay before focusing share link
+const TRANSFER_FINALIZE_DELAY = 1000;      // 1000ms delay before finalizing transfer
+const MOBILE_BREAKPOINT = 768;            // 768px mobile breakpoint
+const TRANSFER_ID_MAX_NUMBER = 1000;      // Maximum number for transfer ID generation
+
 const log = {
     debug: (...args) => DEBUG && console.debug(...args),
     info: (...args) => console.info(...args),
@@ -114,13 +126,17 @@ function displayShareLink(elements, transferId) {
     setTimeout(() => {
         shareUrl.focus();
         shareUrl.select();
-    }, 300);
+    }, SHARE_LINK_FOCUS_DELAY);
 }
 
 function uploadFile(file, elements) {
     const transferId = generateTransferId();
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/send/${transferId}`;
+
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const wsUrl = isLocalhost
+        ? `ws://${window.location.hostname}:${window.location.port || 8080}/send/${transferId}`
+        : `wss://transit.sh/send/${transferId}`;
+
     log.info('Starting upload:', { transferId, fileName: file.name, fileSize: file.size, wsUrl });
 
     const ws = new WebSocket(wsUrl);
@@ -221,7 +237,7 @@ function handleWsError(error, statusText, uploadState) {
 }
 
 async function sendFileInChunks(ws, file, elements, abortController, uploadState) {
-    const chunkSize = isMobileDevice() ? 32 * 1024 : 64 * 1024;
+    const chunkSize = isMobileDevice() ? CHUNK_SIZE_MOBILE : CHUNK_SIZE_DESKTOP;
     log.info('Starting chunked upload:', { chunkSize, fileSize: file.size, totalChunks: Math.ceil(file.size / chunkSize) });
 
     const reader = new FileReader();
@@ -282,12 +298,12 @@ function readChunkAsArrayBuffer(reader, blob, signal) {
 
 function waitForWebSocketBuffer(ws, signal) {
     return new Promise(resolve => {
-        const threshold = isMobileDevice() ? 512 * 1024 : 1024 * 1024;
+        const threshold = isMobileDevice() ? BUFFER_THRESHOLD_MOBILE : BUFFER_THRESHOLD_DESKTOP;
         const checkBuffer = () => {
             if (signal.aborted || ws.bufferedAmount < threshold) {
                 resolve();
             } else {
-                setTimeout(checkBuffer, 200);
+                setTimeout(checkBuffer, BUFFER_CHECK_INTERVAL);
             }
         };
         checkBuffer();
@@ -306,7 +322,7 @@ function finalizeTransfer(ws, statusText, uploadState) {
             uploadState.wakeLock = null;
         }
         ws.close();
-    }, 500);
+    }, TRANSFER_FINALIZE_DELAY);
 }
 
 function cleanupTransfer(abortController, uploadState) {
@@ -321,7 +337,7 @@ function cleanupTransfer(abortController, uploadState) {
 
 function isMobileDevice() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-           (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+           (window.matchMedia && window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches);
 }
 
 function generateTransferId() {
@@ -341,7 +357,7 @@ function generateTransferId() {
 
     const word1 = createWord(hex.substring(0, 6));
     const word2 = createWord(hex.substring(6, 12));
-    const num = parseInt(hex.substring(12, 15), 16) % 1000;
+    const num = parseInt(hex.substring(12, 15), 16) % TRANSFER_ID_MAX_NUMBER;
 
     const transferId = `${word1}-${word2}-${num}`;
     log.debug('Generated transfer ID:', transferId);

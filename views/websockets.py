@@ -54,21 +54,17 @@ async def websocket_upload(websocket: WebSocket, uid: str):
         return
 
     try:
-        await transfer.wait_for_client_connected()
+        await transfer.wait_for_receiver()
     except TimeoutError:
-        log.warning("△ Receiver did not connect in time.")
-        await websocket.send_text(f"Error: Receiver did not connect in time.")
-        return
-    except Exception as e:
-        log.error("△ Error while waiting for receiver connection.", exc_info=e)
-        await websocket.send_text("Error: Error while waiting for receiver connection.")
+        log.warning("△ Receiver timeout")
+        await websocket.send_text("Error: Receiver timeout")
         return
 
     transfer.debug("△ Sending go-ahead...")
     await websocket.send_text("Go for file chunks")
 
     transfer.info("△ Starting upload...")
-    await transfer.collect_upload(
+    await transfer.consume_upload(
         stream=websocket.iter_bytes(),
         on_error=send_error_and_close(websocket),
     )
@@ -92,14 +88,15 @@ async def websocket_download(background_tasks: BackgroundTasks, websocket: WebSo
         await websocket.send_text("File not found")
         return
 
-    if await transfer.is_receiver_connected():
-        log.warning("▼ A client is already downloading this file.")
-        await websocket.send_text("Error: A client is already downloading this file.")
-        return
-
+    progress = await transfer.store.get_progress()
     file_name, file_size, file_type = transfer.get_file_info()
-    transfer.debug(f"▼ File: name={file_name}, size={file_size}, type={file_type}")
-    await websocket.send_json({'file_name': file_name, 'file_size': file_size, 'file_type': file_type})
+    
+    metadata = {'file_name': file_name, 'file_size': file_size, 'file_type': file_type}
+    if progress > 0:
+        metadata['resume_from'] = progress
+        transfer.info(f"▼ Resuming from byte {progress}")
+    
+    await websocket.send_json(metadata)
 
     transfer.info("▼ Waiting for go-ahead...")
     while True:
@@ -107,22 +104,15 @@ async def websocket_download(background_tasks: BackgroundTasks, websocket: WebSo
             msg = await websocket.receive_text()
             if msg == "Go for file chunks":
                 break
-            transfer.warning(f"▼ Unexpected message: {msg}")
         except WebSocketDisconnect:
-            transfer.warning("▼ Client disconnected while waiting for go-ahead")
+            transfer.warning("▼ Disconnected while waiting")
             return
 
-    if not await transfer.set_receiver_connected():
-        log.warning("▼ A client is already downloading this file.")
-        await websocket.send_text("Error: A client is already downloading this file.")
-        return
-
-    transfer.info("▼ Notifying client is connected.")
-    await transfer.set_client_connected()
+    await transfer.notify_receiver_connected()
     background_tasks.add_task(transfer.finalize_download)
 
-    transfer.info("▼ Starting download...")
-    async for chunk in transfer.supply_download(on_error=send_error_and_close(websocket)):
+    transfer.info("▼ Starting download")
+    async for chunk in transfer.produce_download(on_error=send_error_and_close(websocket)):
         await websocket.send_bytes(chunk)
     await websocket.send_bytes(b'')
-    transfer.info("▼ Download complete.")
+    transfer.info("▼ Download complete")

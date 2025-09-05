@@ -4,7 +4,7 @@ import pytest
 import httpx
 from fastapi import WebSocketDisconnect
 from starlette.responses import ClientDisconnect
-from websockets.exceptions import ConnectionClosedError, InvalidStatus
+from websockets.exceptions import InvalidStatus
 
 from tests.helpers import generate_test_file
 from tests.ws_client import WebSocketTestClient
@@ -23,7 +23,7 @@ async def test_invalid_uid(websocket_client: WebSocketTestClient, test_client: h
     response_put = await test_client.put(f"/{uid}/test.txt")
     assert response_put.status_code == expected_status
 
-    with pytest.raises((ConnectionClosedError, InvalidStatus)):
+    with pytest.raises(InvalidStatus):
         async with websocket_client.websocket_connect(f"/send/{uid}") as _:  # type: ignore
             pass
 
@@ -88,54 +88,74 @@ async def test_transfer_id_already_used(websocket_client: WebSocketTestClient):
 
 @pytest.mark.anyio
 async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
-    """Tests that the sender is notified if the receiver disconnects mid-transfer."""
+    """Tests that transfers can be resumed after receiver disconnects."""
     uid = "receiver-disconnect"
     file_content, file_metadata = generate_test_file(size_in_kb=128)  # Larger file
+    received_bytes = b""
 
     async def sender():
-        with pytest.raises(ConnectionClosedError, match="Transfer was interrupted by the receiver"):
-            async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
-                await anyio.sleep(0.1)
+        async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
+            await anyio.sleep(0.1)
 
-                await ws.send_json({
-                    'file_name': file_metadata.name,
-                    'file_size': file_metadata.size,
-                    'file_type': file_metadata.type
-                })
-                await anyio.sleep(1.0)  # Allow receiver to connect
+            await ws.send_json({
+                'file_name': file_metadata.name,
+                'file_size': file_metadata.size,
+                'file_type': file_metadata.type
+            })
+            await anyio.sleep(1.0)  # Allow receiver to connect
 
-                response = await ws.recv()
-                await anyio.sleep(0.1)
-                assert response == "Go for file chunks"
+            response = await ws.recv()
+            await anyio.sleep(0.1)
+            assert response == "Go for file chunks"
 
-                chunks = [file_content[i:i + 4096] for i in range(0, len(file_content), 4096)]
-                for chunk in chunks:
-                    await ws.send_bytes(chunk)
-                    await anyio.sleep(0.1)
-
-                await anyio.sleep(2.0)
+            chunks = [file_content[i:i + 4096] for i in range(0, len(file_content), 4096)]
+            for chunk in chunks:
+                await ws.send_bytes(chunk)
+                await anyio.sleep(0.05)
+            
+            # Send completion marker
+            await ws.send_bytes(b'')
+            await anyio.sleep(2.0)
 
     async def receiver():
+        nonlocal received_bytes
         await anyio.sleep(1.0)
         headers = {'Accept': '*/*'}
 
+        # First download attempt - disconnect after receiving some data
         async with test_client.stream("GET", f"/{uid}?download=true", headers=headers) as response:
             await anyio.sleep(0.1)
-
             response.raise_for_status()
+            
             i = 0
-            with pytest.raises(ClientDisconnect):
-                async for chunk in response.aiter_bytes(4096):
-                    if not chunk:
-                        break
-                    i += 1
-                    if i >= 5:
-                        raise ClientDisconnect("Simulated disconnect")
-                    await anyio.sleep(0.025)
+            async for chunk in response.aiter_bytes(4096):
+                if not chunk:
+                    break
+                received_bytes += chunk
+                i += 1
+                if i >= 5:  # Disconnect after receiving 5 chunks
+                    break
+                await anyio.sleep(0.025)
+
+        # Wait a bit before resuming
+        await anyio.sleep(0.5)
+        
+        # Resume the download
+        async with test_client.stream("GET", f"/{uid}?download=true", headers=headers) as response:
+            response.raise_for_status()
+            assert response.status_code in (200, 206)  # 206 for partial content on resume
+            
+            async for chunk in response.aiter_bytes(4096):
+                if not chunk:
+                    break
+                received_bytes += chunk
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(sender)
         tg.start_soon(receiver)
+    
+    # Verify that the full file was received
+    assert len(received_bytes) == len(file_content)
 
 
 @pytest.mark.anyio

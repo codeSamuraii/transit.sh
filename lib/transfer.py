@@ -37,12 +37,14 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
 
     @classmethod
     async def create(cls, uid: str, file: FileMetadata):
+        """Create a new transfer using the provided identifier and file metadata."""
         transfer = cls(uid, file)
         await transfer.store.set_metadata(file.to_json())
         return transfer
 
     @classmethod
     async def get(cls, uid: str):
+        """Fetch a transfer from the store using the provided identifier."""
         store = Store(uid)
         metadata_json = await store.get_metadata()
         if not metadata_json:
@@ -58,122 +60,81 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
     def get_file_info(self):
         return self.file.name, self.file.size, self.file.type
 
-    async def wait_for_event(self, event_name: str, timeout: float = 300.0):
-        await self.store.wait_for_event(event_name, timeout)
+    async def notify_receiver_connected(self):
+        """Notify sender that receiver connected."""
+        await self.store.set_event('receiver_connected')
 
-    async def set_client_connected(self):
-        self.debug(f"▼ Notifying sender that receiver is connected...")
-        await self.store.set_event('client_connected')
+    async def wait_for_receiver(self):
+        """Wait for receiver to connect."""
+        self.info(f"△ Waiting for receiver...")
+        await self.store.wait_for_event('receiver_connected')
+        self.debug(f"△ Receiver connected")
 
-    async def wait_for_client_connected(self):
-        self.info(f"△ Waiting for client to connect...")
-        await self.wait_for_event('client_connected')
-        self.debug(f"△ Received client connected notification.")
-
-    async def is_receiver_connected(self) -> bool:
-        return await self.store.is_receiver_connected()
-
-    async def set_receiver_connected(self) -> bool:
-        return await self.store.set_receiver_connected()
-
-    async def is_interrupted(self) -> bool:
-        return await self.store.is_interrupted()
-
-    async def set_interrupted(self):
-        await self.store.set_interrupted()
-
-    async def is_completed(self) -> bool:
-        return await self.store.is_completed()
-
-    async def set_completed(self):
-        await self.store.set_completed()
-
-    async def collect_upload(self, stream: AsyncIterator[bytes], on_error: Callable[[Exception | str], Awaitable[None]]) -> None:
+    async def consume_upload(self, stream: AsyncIterator[bytes], on_error: Callable[[Exception | str], Awaitable[None]]) -> None:
+        """Consume upload stream and add chunks to Redis stream."""
         self.bytes_uploaded = 0
 
         try:
             async for chunk in stream:
                 if not chunk:
-                    self.debug(f"△ Empty chunk received, ending upload.")
                     break
 
-                if await self.is_interrupted():
-                    raise TransferError("Transfer was interrupted by the receiver.", propagate=False)
-
-                await self.store.put_in_queue(chunk)
+                await self.store.add_chunk(chunk)
                 self.bytes_uploaded += len(chunk)
 
             if self.bytes_uploaded < self.file.size:
-                raise TransferError("Received less data than expected.", propagate=True)
+                raise TransferError("Incomplete upload", propagate=True)
 
-            self.debug(f"△ End of upload, sending done marker.")
-            await self.store.put_in_queue(self.DONE_FLAG)
+            await self.store.add_chunk(self.DONE_FLAG)
+            self.debug(f"△ Upload complete: {self.bytes_uploaded} bytes")
 
-        except (ClientDisconnect, WebSocketDisconnect) as e:
-            self.error(f"△ Unexpected upload error: {e}")
-            await self.store.put_in_queue(self.DEAD_FLAG)
+        except (ClientDisconnect, WebSocketDisconnect):
+            self.error(f"△ Sender disconnected")
+            await self.store.add_chunk(self.DEAD_FLAG)
 
-        except TimeoutError as e:
-            self.warning(f"△ Timeout during upload.", exc_info=True)
-            await on_error("Timeout during upload.")
+        except TimeoutError:
+            self.warning(f"△ Upload timeout")
+            await on_error("Upload timeout")
 
         except TransferError as e:
-            self.warning(f"△ Upload error: {e}")
             if e.propagate:
-                await self.store.put_in_queue(self.DEAD_FLAG)
-            else:
-                await on_error(e)
+                await self.store.add_chunk(self.DEAD_FLAG)
+            await on_error(e)
 
-        finally:
-            await anyio.sleep(1.0)
+    async def produce_download(self, on_error: Callable[[Exception | str], Awaitable[None]]) -> AsyncIterator[bytes]:
+        """Produce download stream from Redis stream."""
+        self.bytes_downloaded = await self.store.get_progress()
 
-    async def supply_download(self, on_error: Callable[[Exception | str], Awaitable[None]]) -> AsyncIterator[bytes]:
-        self.bytes_downloaded = 0
+        if self.bytes_downloaded > 0:
+            self.info(f"▼ Resuming from byte {self.bytes_downloaded}")
 
         try:
-            while True:
-                chunk = await self.store.get_from_queue()
-
+            async for chunk in self.store.stream_chunks():
                 if chunk == self.DEAD_FLAG:
-                    raise TransferError("Sender disconnected.")
+                    raise TransferError("Sender disconnected")
 
-                if chunk == self.DONE_FLAG and self.bytes_downloaded < self.file.size:
-                    raise TransferError("Received less data than expected.")
-
-                elif chunk == self.DONE_FLAG:
-                    self.debug(f"▼ Done marker received, ending download.")
+                if chunk == self.DONE_FLAG:
+                    if self.bytes_downloaded >= self.file.size:
+                        self.debug(f"▼ Download complete: {self.bytes_downloaded} bytes")
                     break
 
                 self.bytes_downloaded += len(chunk)
+                await self.store.save_progress(self.bytes_downloaded)
                 yield chunk
 
-        except Exception as e:
-            self.error(f"▼ Unexpected download error!", exc_info=True)
-            self.debug("Debug info:", stack_info=True)
-            await on_error(e)
-
         except TransferError as e:
-            self.warning(f"▼ Download error")
+            await on_error(e)
+        except Exception as e:
+            self.error(f"▼ Download error", exc_info=True)
             await on_error(e)
 
     async def cleanup(self):
-        try:
-            with anyio.fail_after(30.0):
-                await self.store.cleanup()
-        except TimeoutError:
-            self.warning(f"- Cleanup timed out.")
-            pass
+        """Clean up transfer data."""
+        await self.store.cleanup()
 
     async def finalize_download(self):
-        # self.debug("▼ Finalizing download...")
-        if self.bytes_downloaded < self.file.size and not await self.is_interrupted():
-            self.warning("▼ Client disconnected before download was complete.")
-            await self.set_interrupted()
-
-        await self.cleanup()
-        # self.debug("▼ Finalizing download...")
-        if self.bytes_downloaded < self.file.size and not await self.is_interrupted():
-            self.warning("▼ Client disconnected before download was complete.")
-            await self.set_interrupted()
-
-        await self.cleanup()
+        """Finalize download and cleanup if complete."""
+        if self.bytes_downloaded < self.file.size:
+            self.info(f"▼ Download paused at {self.bytes_downloaded}/{self.file.size} bytes")
+        else:
+            await self.cleanup()

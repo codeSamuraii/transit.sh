@@ -37,7 +37,7 @@ async def http_upload(request: Request, uid: str, filename: str):
         raise HTTPException(status_code=400, detail="Cannot decode file metadata from HTTP headers.")
     except ValidationError as e:
         log.error("△ Invalid file metadata.", exc_info=e)
-        raise HTTPException(status_code=400, detail="Invalid file metadata.")
+        raise HTTPException(status_code=400, detail=f"Invalid file metadata: {e.errors(False, False, True)}")
 
     if file.size > 1024**3:
         raise HTTPException(status_code=413, detail="File too large. 1GiB maximum for HTTP.")
@@ -54,13 +54,13 @@ async def http_upload(request: Request, uid: str, filename: str):
         raise HTTPException(status_code=400, detail="Invalid transfer ID or file metadata.")
 
     try:
-        await transfer.wait_for_client_connected()
+        await transfer.wait_for_receiver()
     except TimeoutError:
         log.warning("△ Receiver did not connect in time.")
-        raise HTTPException(status_code=408, detail="Client did not connect in time.")
+        raise HTTPException(status_code=408, detail="Receiver did not connect in time.")
 
     transfer.info("△ Starting upload...")
-    await transfer.collect_upload(
+    await transfer.consume_upload(
         stream=request.stream(),
         on_error=raise_http_exception(request),
     )
@@ -107,21 +107,33 @@ async def http_download(request: Request, uid: str):
         return templates.TemplateResponse(request, "preview.html", transfer.file.to_readable_dict())
 
     if not is_curl and not request.query_params.get('download'):
-        log.info(f"▼ Browser request detected, serving download page. UA: ({request.headers.get('user-agent')})")
-        return templates.TemplateResponse(request, "download.html", transfer.file.to_readable_dict() | {'receiver_connected': await transfer.is_receiver_connected()})
+        log.info(f"▼ Browser request detected, serving download page")
+        progress = await transfer.store.get_progress()
+        return templates.TemplateResponse(request, "download.html",
+            transfer.file.to_readable_dict() | {'receiver_connected': progress > 0})
 
-    elif not await transfer.set_receiver_connected():
-        raise HTTPException(status_code=409, detail="A client is already downloading this file.")
+    await transfer.notify_receiver_connected()
 
-    await transfer.set_client_connected()
+    progress = await transfer.store.get_progress()
+    if progress > 0:
+        transfer.info(f"▼ Resuming from byte {progress}")
+        headers = {
+            "Content-Disposition": f"attachment; filename={file_name}",
+            "Content-Range": f"bytes {progress}-*/{file_size}"
+        }
+        status_code = 206
+    else:
+        transfer.info("▼ Starting download")
+        headers = {
+            "Content-Disposition": f"attachment; filename={file_name}",
+            "Content-Length": str(file_size)
+        }
+        status_code = 200
 
-    transfer.info("▼ Starting download...")
-    data_stream = StreamingResponse(
-        transfer.supply_download(on_error=raise_http_exception(request)),
-        status_code=200,
+    return StreamingResponse(
+        transfer.produce_download(on_error=raise_http_exception(request)),
+        status_code=status_code,
         media_type=file_type,
         background=BackgroundTask(transfer.finalize_download),
-        headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
+        headers=headers
     )
-
-    return data_stream
