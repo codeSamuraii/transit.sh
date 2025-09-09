@@ -76,10 +76,8 @@ async def websocket_upload(websocket: WebSocket, uid: str):
     transfer.info("△ Upload complete.")
 
 
-@warnings.deprecated(
-    "This endpoint is deprecated and will be removed soon. "
-    "It should not be used for reference, and it is disabled on the website."
-)
+# Deprecated: This endpoint is deprecated and will be removed soon.
+# It should not be used for reference, and it is disabled on the website.
 @router.websocket("/receive/{uid}")
 async def websocket_download(background_tasks: BackgroundTasks, websocket: WebSocket, uid: str):
     await websocket.accept()
