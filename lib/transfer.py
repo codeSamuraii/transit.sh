@@ -91,7 +91,7 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
                 raise TransferError("Incomplete upload", propagate=True)
 
             await self.store.add_chunk(self.DONE_FLAG)
-            self.debug(f"△ Upload complete: {self.bytes_uploaded} bytes")
+            self.debug(f"△ All data chunks uploaded: {self.bytes_uploaded} bytes")
 
         except (ClientDisconnect, WebSocketDisconnect):
             self.error(f"△ Sender disconnected")
@@ -122,7 +122,7 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
 
                 if chunk == self.DONE_FLAG:
                     if self.bytes_downloaded >= self.file.size:
-                        self.debug(f"▼ Download complete: {self.bytes_downloaded} bytes")
+                        self.debug(f"▼ All data chunks downloaded: {self.bytes_downloaded} bytes")
                     break
 
                 self.bytes_downloaded += len(chunk)

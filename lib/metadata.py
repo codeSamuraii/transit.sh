@@ -1,12 +1,12 @@
 from starlette.datastructures import Headers
-from pydantic import BaseModel, Field, field_validator, ByteSize, ConfigDict, AliasChoices
+from pydantic import BaseModel, Field, StrictStr, field_validator, ByteSize, ConfigDict, AliasChoices
 from typing import Optional, Self, Annotated
 
 
 class FileMetadata(BaseModel):
-    name: str = Field(description="File name", min_length=1, max_length=255)
+    name: StrictStr = Field(description="File name", min_length=1, max_length=255)
     size: ByteSize = Field(description="Size in bytes", gt=0)
-    type: str = Field(description="MIME type", default='application/octet-stream')
+    type: StrictStr = Field(description="MIME type", default='application/octet-stream')
 
     model_config = ConfigDict(title="File transfer metadata", alias_generator=lambda s: f'file_{s}', populate_by_name=True, validate_by_name=True)
 
@@ -29,7 +29,7 @@ class FileMetadata(BaseModel):
         return cls(
             name=filename,
             size=headers.get('content-length', '0'),
-            type=headers.get('content-type', '')
+            type=headers.get('content-type', '')  # Must be a string
         )
 
     @classmethod
