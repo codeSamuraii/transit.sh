@@ -117,6 +117,14 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
         progress = await self.redis.get(self._k_progress)
         return int(progress) if progress else 0
 
+    async def set_receiver_active(self) -> None:
+        """Mark receiver as actively downloading with TTL."""
+        await self.redis.set(self.key('receiver_active'), '1', ex=5)
+
+    async def is_receiver_active(self) -> bool:
+        """Check if receiver is actively downloading."""
+        return bool(await self.redis.exists(self.key('receiver_active')))
+
     async def cleanup(self) -> None:
         """Delete all transfer data."""
         pattern = self.key('*')

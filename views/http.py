@@ -108,9 +108,9 @@ async def http_download(request: Request, uid: str):
 
     if not is_curl and not request.query_params.get('download'):
         log.info(f"▼ Browser request detected, serving download page")
-        progress = await transfer.store.get_progress()
+        receiver_connected = await transfer.receiver_connected
         return templates.TemplateResponse(request, "download.html",
-            transfer.file.to_readable_dict() | {'receiver_connected': progress > 0})
+            transfer.file.to_readable_dict() | {'receiver_connected': receiver_connected})
 
     await transfer.notify_receiver_connected()
 

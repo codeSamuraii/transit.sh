@@ -60,6 +60,11 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
     def get_file_info(self):
         return self.file.name, self.file.size, self.file.type
 
+    @property
+    async def receiver_connected(self) -> bool:
+        """Check if a receiver is actively downloading."""
+        return await self.store.is_receiver_active()
+
     async def notify_receiver_connected(self):
         """Notify sender that receiver connected."""
         await self.store.set_event('receiver_connected')
@@ -109,6 +114,8 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
             self.info(f"▼ Resuming from byte {self.bytes_downloaded}")
 
         try:
+            await self.store.set_receiver_active()
+
             async for chunk in self.store.stream_chunks():
                 if chunk == self.DEAD_FLAG:
                     raise TransferError("Sender disconnected")
@@ -120,6 +127,7 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
 
                 self.bytes_downloaded += len(chunk)
                 await self.store.save_progress(self.bytes_downloaded)
+                await self.store.set_receiver_active()
                 yield chunk
 
         except TransferError as e:
