@@ -112,7 +112,7 @@ async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_cl
             for chunk in chunks:
                 await ws.send_bytes(chunk)
                 await anyio.sleep(0.05)
-            
+
             # Send completion marker
             await ws.send_bytes(b'')
             await anyio.sleep(2.0)
@@ -126,7 +126,7 @@ async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_cl
         async with test_client.stream("GET", f"/{uid}?download=true", headers=headers) as response:
             await anyio.sleep(0.1)
             response.raise_for_status()
-            
+
             i = 0
             async for chunk in response.aiter_bytes(4096):
                 if not chunk:
@@ -139,12 +139,12 @@ async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_cl
 
         # Wait a bit before resuming
         await anyio.sleep(0.5)
-        
+
         # Resume the download
         async with test_client.stream("GET", f"/{uid}?download=true", headers=headers) as response:
             response.raise_for_status()
             assert response.status_code in (200, 206)  # 206 for partial content on resume
-            
+
             async for chunk in response.aiter_bytes(4096):
                 if not chunk:
                     break
@@ -153,9 +153,10 @@ async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_cl
     async with anyio.create_task_group() as tg:
         tg.start_soon(sender)
         tg.start_soon(receiver)
-    
+
     # Verify that the full file was received
     assert len(received_bytes) == len(file_content)
+    assert received_bytes == file_content
 
 
 @pytest.mark.anyio

@@ -24,8 +24,7 @@ def raise_http_exception(request: Request) -> Callable[[Exception | str], Awaita
     """Callback to raise an HTTPException with a specific status code."""
 
     async def _raise_http_exception(error: Exception | str) -> None:
-        message = str(error) if isinstance(error, Exception) else error
-        code = error.status_code if isinstance(error, HTTPException) else 400
-        raise StreamTerminated(f"{code}: {message}") from error
+        code = error.status_code if isinstance(error, HTTPException) else 405
+        raise StreamTerminated(f"{code}: {str(error)}") from error
 
     return _raise_http_exception
