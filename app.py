@@ -15,7 +15,7 @@ from views import http_router, ws_router, misc_router
 async def lifespan(app: FastAPI):
     setup_logging()
     sentry_sdk.init(release=os.getenv('DEPLOYMENT_ID', 'local'))
-    app.state.redis = redis.asyncio.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379'), decode_responses=True)
+    app.state.redis = redis.asyncio.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379'))
     yield
     await app.state.redis.aclose()
 

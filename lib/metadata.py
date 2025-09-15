@@ -1,6 +1,7 @@
 from starlette.datastructures import Headers
-from pydantic import BaseModel, Field, StrictStr, field_validator, ByteSize, ConfigDict, AliasChoices
-from typing import Optional, Self, Annotated
+from pydantic import BaseModel, ByteSize, ConfigDict, Field, field_validator, StrictStr
+from typing import Annotated, Optional, Self
+import re
 
 
 class FileMetadata(BaseModel):
@@ -13,8 +14,19 @@ class FileMetadata(BaseModel):
     @field_validator('name')
     @classmethod
     def validate_name(cls, v: str) -> str:
-        safe_filename = str(v).translate(str.maketrans(':;|*@/\\', '       ')).strip()
-        return safe_filename.encode('latin-1', 'ignore').decode('utf-8', 'ignore')
+        if not v or not v.strip():
+            raise ValueError("Filename cannot be empty")
+
+        safe_filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', ' ', str(v)).strip()
+        if not safe_filename:
+            raise ValueError("Filename contains only invalid characters")
+
+        try:
+            safe_filename = safe_filename.encode('utf-8').decode('utf-8')
+        except UnicodeError:
+            safe_filename = safe_filename.encode('utf-8', 'ignore').decode('utf-8', 'ignore')
+
+        return safe_filename
 
     @classmethod
     def from_json(cls, data: str) -> Self:

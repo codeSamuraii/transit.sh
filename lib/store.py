@@ -23,6 +23,7 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
         self._k_metadata = self.key('metadata')
         self._k_position = self.key('position')
         self._k_progress = self.key('progress')
+        self._k_receiver_active = self.key('receiver_active')
 
     @classmethod
     def get_redis(cls) -> redis.Redis:
@@ -38,16 +39,15 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
 
     async def add_chunk(self, data: bytes) -> None:
         """Add chunk to stream."""
-        # No maxlen limit - streams auto-expire after 5 minutes
         await self.redis.xadd(self._k_stream, {'data': data})
 
-    async def stream_chunks(self, timeout_ms: int = 20000):
+    async def stream_chunks(self, read_timeout: float = 20.0):
         """Stream chunks from last position."""
         position = await self.redis.get(self._k_position)
         last_id = position.decode() if position else '0'
 
         while True:
-            result = await self.redis.xread({self._k_stream: last_id}, block=timeout_ms)
+            result = await self.redis.xread({self._k_stream: last_id}, block=int(read_timeout*1000))
             if not result:
                 raise TimeoutError("Stream read timeout")
 
@@ -119,11 +119,11 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
 
     async def set_receiver_active(self) -> None:
         """Mark receiver as actively downloading with TTL."""
-        await self.redis.set(self.key('receiver_active'), '1', ex=5)
+        await self.redis.set(self._k_receiver_active, '1', ex=5)
 
     async def is_receiver_active(self) -> bool:
         """Check if receiver is actively downloading."""
-        return bool(await self.redis.exists(self.key('receiver_active')))
+        return bool(await self.redis.exists(self._k_receiver_active))
 
     async def cleanup(self) -> None:
         """Delete all transfer data."""

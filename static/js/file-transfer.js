@@ -9,7 +9,7 @@ const BUFFER_CHECK_INTERVAL = 200;        // 200ms interval for buffer checks
 const SHARE_LINK_FOCUS_DELAY = 300;       // 300ms delay before focusing share link
 const TRANSFER_FINALIZE_DELAY = 1000;      // 1000ms delay before finalizing transfer
 const MOBILE_BREAKPOINT = 768;            // 768px mobile breakpoint
-const TRANSFER_ID_MAX_NUMBER = 999;      // Maximum number for transfer ID generation
+const TRANSFER_ID_MAX_NUMBER = 1000;      // Maximum number for transfer ID generation
 
 const log = {
     debug: (...args) => DEBUG && console.debug(...args),
