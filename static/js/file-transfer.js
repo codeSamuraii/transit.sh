@@ -1,18 +1,16 @@
-const DEBUG = true;
+const CHUNK_SIZE_MOBILE = 32 * 1024;                        // 32KiB for mobile devices
+const CHUNK_SIZE_DESKTOP = 64 * 1024;                       // 64KiB for desktop devices
+const BUFFER_THRESHOLD_MOBILE = CHUNK_SIZE_MOBILE * 16;     // 512KiB buffer threshold for mobile
+const BUFFER_THRESHOLD_DESKTOP = CHUNK_SIZE_DESKTOP * 16;   // 1MiB buffer threshold for desktop
+const BUFFER_CHECK_INTERVAL = 200;                          // 200ms interval for buffer checks
+const SHARE_LINK_FOCUS_DELAY = 300;                         // 300ms delay before focusing share link
+const TRANSFER_FINALIZE_DELAY = 1000;                       // 1000ms delay before finalizing transfer
+const MOBILE_BREAKPOINT = 768;                              // 768px mobile breakpoint
+const TRANSFER_ID_MAX_NUMBER = 1000;                        // Maximum number for transfer ID generation (0-999)
 
-// Configuration constants
-const CHUNK_SIZE_MOBILE = 32 * 1024;      // 32KB for mobile devices
-const CHUNK_SIZE_DESKTOP = 64 * 1024;     // 64KB for desktop devices
-const BUFFER_THRESHOLD_MOBILE = CHUNK_SIZE_MOBILE * 16;
-const BUFFER_THRESHOLD_DESKTOP = CHUNK_SIZE_DESKTOP * 16;
-const BUFFER_CHECK_INTERVAL = 200;        // 200ms interval for buffer checks
-const SHARE_LINK_FOCUS_DELAY = 300;       // 300ms delay before focusing share link
-const TRANSFER_FINALIZE_DELAY = 1000;      // 1000ms delay before finalizing transfer
-const MOBILE_BREAKPOINT = 768;            // 768px mobile breakpoint
-const TRANSFER_ID_MAX_NUMBER = 1000;      // Maximum number for transfer ID generation
-
+const DEBUG_LOGS = true;
 const log = {
-    debug: (...args) => DEBUG && console.debug(...args),
+    debug: (...args) => DEBUG_LOGS && console.debug(...args),
     info: (...args) => console.info(...args),
     warn: (...args) => console.warn(...args),
     error: (...args) => console.error(...args)
@@ -31,7 +29,7 @@ function initFileTransfer() {
         progressText: document.getElementById('progress-text'),
         statusText: document.getElementById('status-text'),
         shareLink: document.getElementById('share-link'),
-        shareUrl: document.getElementById('share-url'),
+        shareUrl: document.getElementById('share-url')
     };
 
     if (isMobileDevice() && elements.dropAreaText) {
@@ -132,10 +130,8 @@ function displayShareLink(elements, transferId) {
 function uploadFile(file, elements) {
     const transferId = generateTransferId();
 
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const wsUrl = isLocalhost
-        ? `ws://${window.location.hostname}:${window.location.port || 8080}/send/${transferId}`
-        : `wss://transit.sh/send/${transferId}`;
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/send/${transferId}`;
 
     log.info('Starting upload:', { transferId, fileName: file.name, fileSize: file.size, wsUrl });
 
@@ -150,9 +146,9 @@ function uploadFile(file, elements) {
 
     showProgress(elements);
 
-    ws.onopen = () => handleWsOpen(ws, file, transferId, elements, uploadState);
+    ws.onopen = () => handleWsOpen(ws, file, transferId, elements);
     ws.onmessage = (event) => handleWsMessage(event, ws, file, elements, abortController, uploadState);
-    ws.onerror = (error) => handleWsError(error, elements.statusText, uploadState);
+    ws.onerror = (error) => handleWsError(error, elements.statusText);
     ws.onclose = (event) => {
         log.info('WebSocket connection closed:', { code: event.code, reason: event.reason, wasClean: event.wasClean });
         if (uploadState.isUploading && !event.wasClean) {
@@ -200,7 +196,7 @@ function uploadFile(file, elements) {
     }
 }
 
-function handleWsOpen(ws, file, transferId, elements, uploadState) {
+function handleWsOpen(ws, file, transferId, elements) {
     log.info('WebSocket connection opened');
     const metadata = {
         file_name: file.name,
@@ -230,7 +226,7 @@ function handleWsMessage(event, ws, file, elements, abortController, uploadState
     }
 }
 
-function handleWsError(error, statusText, uploadState) {
+function handleWsError(error, statusText) {
     log.error('WebSocket error:', error);
     statusText.textContent = 'Error: ' + (error.message || 'Connection failed');
     statusText.style.color = 'var(--error)';
