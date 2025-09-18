@@ -19,7 +19,7 @@
             <h1><a href="/">Transit.sh</a><span class="beta-badge">Beta</span></h1>
             <p>Direct file transfer without intermediate storage</p>
             <div class="beta-warning">
-                <strong>Notice:</strong> This service is in beta. If you encounter any bug, please report it <a href="https://github.com/codeSamuraii/transit.sh/issues">here</a>.<br>Sending files via mobile browsers is not supported yet.
+                <strong>Notice:</strong> This service is in beta. If you encounter any bug, please report it <a href="https://github.com/codeSamuraii/transit.sh/issues">here</a>.
             </div>
         </header>
 
@@ -29,14 +29,14 @@
                 <p>Drag and drop or select a file to generate a download link.</p>
 
                 <div class="transfer-container">
-                    <div id="drop-area" class="drop-area">
-                        <p>Drag and drop your file here, or click to select a file</p>
-                        <input type="file" id="file-input">
+                    <div id="drop-area" class="drop-area" role="button" aria-label="Select or drop a file">
+                        <p id="drop-area-text">Drag and drop your file here, or tap to select a file</p>
+                        <input type="file" id="file-input" aria-label="File input">
                     </div>
 
                     <div id="share-link" class="share-link">
                         <label for="share-url">Download link:</label>
-                        <input type="text" id="share-url" readonly>
+                        <input type="text" id="share-url" readonly aria-label="Share URL">
                     </div>
                 </div>
 
@@ -95,6 +95,6 @@ curl -JLO https://transit.sh/<span class="code-string">music-for-dad</span>/</co
         </footer>
     </div>
 
-    <script src="/js/file-transfer.js"></script>
+    <script src="/js/file-transfer.js" defer></script>
 </body>
 </html>
