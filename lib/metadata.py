@@ -29,7 +29,7 @@ class FileMetadata(BaseModel):
         return cls(
             name=filename,
             size=headers.get('content-length', '0'),
-            type=headers.get('content-type', '') or None
+            type=headers.get('content-type', '')
         )
 
     @classmethod
