@@ -1,16 +1,19 @@
 import string
 import anyio
-from fastapi import Request, APIRouter
+from fastapi import Request, APIRouter, Header
 from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
 from fastapi.exceptions import HTTPException
-from fastapi.responses import StreamingResponse, PlainTextResponse
+from fastapi.responses import StreamingResponse, PlainTextResponse, Response
 from pydantic import ValidationError
+from typing import Optional
 
 from lib.logging import get_logger
 from lib.callbacks import raise_http_exception
 from lib.transfer import FileTransfer
 from lib.metadata import FileMetadata
+from lib.range_utils import RangeParser
+from lib.resume import ResumptionHandler
 
 router = APIRouter()
 log = get_logger('http')
@@ -77,7 +80,12 @@ PREFETCHER_USER_AGENTS = {
 
 @router.get("/{uid}")
 @router.get("/{uid}/")
-async def http_download(request: Request, uid: str):
+async def http_download(
+    request: Request,
+    uid: str,
+    range_header: Optional[str] = Header(None, alias="Range"),
+    if_range: Optional[str] = Header(None, alias="If-Range")
+):
     """
     Download a file via HTTP GET.
 
@@ -110,18 +118,56 @@ async def http_download(request: Request, uid: str):
         log.info(f"▼ Browser request detected, serving download page. UA: ({request.headers.get('user-agent')})")
         return templates.TemplateResponse(request, "download.html", transfer.file.to_readable_dict() | {'receiver_connected': await transfer.is_receiver_connected()})
 
-    elif not await transfer.set_receiver_connected():
-        raise HTTPException(status_code=409, detail="A client is already downloading this file.")
+    # Parse Range header for partial content requests
+    range_request = RangeParser.parse_range_header(range_header, file_size)
+    is_resume = range_request is not None
 
-    await transfer.set_client_connected()
+    if is_resume:
+        log.info(f"▼ Range request detected: bytes={range_request.start}-{range_request.end or 'end'}")
 
-    transfer.info("▼ Starting download...")
-    data_stream = StreamingResponse(
-        transfer.supply_download(on_error=raise_http_exception(request)),
-        status_code=200,
-        media_type=file_type,
-        background=BackgroundTask(transfer.finalize_download),
-        headers={"Content-Disposition": f"attachment; filename={file_name}", "Content-Length": str(file_size)}
-    )
+        # Check if transfer can be resumed
+        handler = ResumptionHandler(uid, transfer.store)
+        if not await handler.can_resume_download():
+            # First partial request, mark as resumable
+            await handler.prepare_download_resume(range_header)
+
+        # For partial content, we can have multiple concurrent downloads
+        await transfer.set_client_connected()
+
+        transfer.info(f"▼ Starting partial download from byte {range_request.start}")
+        data_stream = StreamingResponse(
+            transfer.supply_download(
+                on_error=raise_http_exception(request),
+                start_byte=range_request.start
+            ),
+            status_code=206,  # Partial Content
+            media_type=file_type,
+            background=BackgroundTask(transfer.finalize_download),
+            headers={
+                "Content-Disposition": f"attachment; filename={file_name}",
+                "Content-Range": range_request.to_content_range(file_size),
+                "Content-Length": str(range_request.length),
+                "Accept-Ranges": "bytes"
+            }
+        )
+    else:
+        # Normal download without range
+        if not await transfer.set_receiver_connected():
+            raise HTTPException(status_code=409, detail="A client is already downloading this file.")
+
+        await transfer.set_client_connected()
+
+        transfer.info("▼ Starting download...")
+        data_stream = StreamingResponse(
+            transfer.supply_download(on_error=raise_http_exception(request)),
+            status_code=200,
+            media_type=file_type,
+            background=BackgroundTask(transfer.finalize_download),
+            headers={
+                "Content-Disposition": f"attachment; filename={file_name}",
+                "Content-Length": str(file_size),
+                "Accept-Ranges": "bytes"  # Advertise range support
+            }
+        )
 
     return data_stream

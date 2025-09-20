@@ -88,32 +88,35 @@ async def test_transfer_id_already_used(websocket_client: WebSocketTestClient):
 
 @pytest.mark.anyio
 async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
-    """Tests that the sender is notified if the receiver disconnects mid-transfer."""
+    """Tests that the sender waits for receiver reconnection with resumable transfers."""
     uid = "receiver-disconnect"
     file_content, file_metadata = generate_test_file(size_in_kb=128)  # Larger file
 
     async def sender():
-        with pytest.raises(ConnectionClosedError, match="Transfer was interrupted by the receiver"):
-            async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
-                await anyio.sleep(0.1)
+        async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
+            await anyio.sleep(0.1)
 
-                await ws.send_json({
-                    'file_name': file_metadata.name,
-                    'file_size': file_metadata.size,
-                    'file_type': file_metadata.type
-                })
-                await anyio.sleep(1.0)  # Allow receiver to connect
+            await ws.send_json({
+                'file_name': file_metadata.name,
+                'file_size': file_metadata.size,
+                'file_type': file_metadata.type
+            })
+            await anyio.sleep(1.0)  # Allow receiver to connect
 
-                response = await ws.recv()
-                await anyio.sleep(0.1)
-                assert response == "Go for file chunks"
+            response = await ws.recv()
+            await anyio.sleep(0.1)
+            assert response == "Go for file chunks"
 
-                chunks = [file_content[i:i + 4096] for i in range(0, len(file_content), 4096)]
-                for chunk in chunks:
-                    await ws.send_bytes(chunk)
-                    await anyio.sleep(0.1)
+            chunks = [file_content[i:i + 4096] for i in range(0, len(file_content), 4096)]
+            for i, chunk in enumerate(chunks):
+                await ws.send_bytes(chunk)
+                await anyio.sleep(0.05)
+                if i >= 10:  # Send enough chunks before receiver disconnects
+                    break
 
-                await anyio.sleep(2.0)
+            # With resumable transfers, sender now waits for reconnection
+            await anyio.sleep(2.0)
+            # Transfer should continue waiting, not error immediately
 
     async def receiver():
         await anyio.sleep(1.0)

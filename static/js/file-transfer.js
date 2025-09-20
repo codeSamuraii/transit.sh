@@ -130,9 +130,21 @@ function displayShareLink(elements, transferId) {
 
 function uploadFile(file, elements) {
     const transferId = generateTransferId();
+    const uploadKey = `upload_${transferId}_${file.name}_${file.size}`;
+    const savedProgress = getUploadProgress(uploadKey);
+    const isResume = savedProgress && savedProgress.bytesUploaded > 0;
+
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/send/${transferId}`;
-    log.info('Starting upload:', { transferId, fileName: file.name, fileSize: file.size, wsUrl });
+    const endpoint = isResume ? 'resume' : 'send';
+    const wsUrl = `${wsProtocol}//${window.location.host}/${endpoint}/${transferId}`;
+
+    log.info(isResume ? 'Resuming upload:' : 'Starting upload:', {
+        transferId,
+        fileName: file.name,
+        fileSize: file.size,
+        wsUrl,
+        resumeFrom: savedProgress?.bytesUploaded || 0
+    });
 
     const ws = new WebSocket(wsUrl);
     const abortController = new AbortController();
@@ -140,7 +152,9 @@ function uploadFile(file, elements) {
         file: file,
         transferId: transferId,
         isUploading: false,
-        wakeLock: null
+        wakeLock: null,
+        uploadKey: uploadKey,
+        resumePosition: 0
     };
 
     showProgress(elements);
@@ -215,10 +229,18 @@ function handleWsMessage(event, ws, file, elements, abortController, uploadState
         elements.statusText.textContent = 'Peer connected. Transferring file...';
         uploadState.isUploading = true;
         sendFileInChunks(ws, file, elements, abortController, uploadState);
+    } else if (event.data.startsWith('Resume from:')) {
+        const resumeBytes = parseInt(event.data.split(':')[1].trim());
+        log.info('Resuming from byte:', resumeBytes);
+        elements.statusText.textContent = `Resuming transfer from ${Math.round(resumeBytes / file.size * 100)}%...`;
+        uploadState.isUploading = true;
+        uploadState.resumePosition = resumeBytes;
+        sendFileInChunks(ws, file, elements, abortController, uploadState);
     } else if (event.data.startsWith('Error')) {
         log.error('Server error:', event.data);
         elements.statusText.textContent = event.data;
         elements.statusText.style.color = 'var(--error)';
+        clearUploadProgress(uploadState.uploadKey);
         cleanupTransfer(abortController, uploadState);
     } else {
         log.warn('Unexpected message:', event.data);
@@ -233,10 +255,16 @@ function handleWsError(error, statusText) {
 
 async function sendFileInChunks(ws, file, elements, abortController, uploadState) {
     const chunkSize = isMobileDevice() ? CHUNK_SIZE_MOBILE : CHUNK_SIZE_DESKTOP;
-    log.info('Starting chunked upload:', { chunkSize, fileSize: file.size, totalChunks: Math.ceil(file.size / chunkSize) });
+    const startOffset = uploadState.resumePosition || 0;
+    log.info('Starting chunked upload:', {
+        chunkSize,
+        fileSize: file.size,
+        startOffset,
+        totalChunks: Math.ceil((file.size - startOffset) / chunkSize)
+    });
 
     const reader = new FileReader();
-    let offset = 0;
+    let offset = startOffset;
     const signal = abortController.signal;
 
     try {
@@ -256,11 +284,17 @@ async function sendFileInChunks(ws, file, elements, abortController, uploadState
             const progress = offset / file.size;
             log.debug('Chunk sent:', { offset, progress: `${Math.round(progress * 100)}%`, bufferedAmount: ws.bufferedAmount });
             updateProgress(elements, progress);
+
+            // Save progress periodically
+            if (offset % (256 * 1024) === 0 || offset === file.size) {
+                saveUploadProgress(uploadState.uploadKey, offset, uploadState.transferId);
+            }
         }
 
         if (!signal.aborted && offset >= file.size) {
             log.info('Upload completed successfully');
             uploadState.isUploading = false;
+            clearUploadProgress(uploadState.uploadKey);
             finalizeTransfer(ws, elements.statusText, uploadState);
         }
     } catch (error) {
@@ -333,6 +367,47 @@ function cleanupTransfer(abortController, uploadState) {
 function isMobileDevice() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
            (window.matchMedia && window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches);
+}
+
+// Progress persistence functions
+function saveUploadProgress(key, bytesUploaded, transferId) {
+    try {
+        const progress = {
+            bytesUploaded: bytesUploaded,
+            transferId: transferId,
+            timestamp: Date.now()
+        };
+        localStorage.setItem(key, JSON.stringify(progress));
+        log.debug('Progress saved:', progress);
+    } catch (e) {
+        log.warn('Failed to save progress:', e);
+    }
+}
+
+function getUploadProgress(key) {
+    try {
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            const progress = JSON.parse(saved);
+            // Only use progress if less than 1 hour old
+            if (Date.now() - progress.timestamp < 3600000) {
+                return progress;
+            }
+            localStorage.removeItem(key);
+        }
+    } catch (e) {
+        log.warn('Failed to load progress:', e);
+    }
+    return null;
+}
+
+function clearUploadProgress(key) {
+    try {
+        localStorage.removeItem(key);
+        log.debug('Progress cleared');
+    } catch (e) {
+        log.warn('Failed to clear progress:', e);
+    }
 }
 
 function generateTransferId() {
