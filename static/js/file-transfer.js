@@ -7,7 +7,7 @@ const SHARE_LINK_FOCUS_DELAY = 300;                         // 300ms delay befor
 const TRANSFER_FINALIZE_DELAY = 500;                        // 500ms delay before finalizing transfer
 const MOBILE_BREAKPOINT = 768;                              // 768px mobile breakpoint
 const TRANSFER_ID_MAX_NUMBER = 1000;                        // Maximum number for transfer ID generation (0-999)
-const DEBUG_LOGS = true;
+const DEBUG_LOGS = false;
 
 const log = {
     debug: (...args) => DEBUG_LOGS && console.debug(...args),

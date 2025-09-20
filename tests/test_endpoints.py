@@ -18,10 +18,10 @@ from tests.ws_client import WebSocketTestClient
 async def test_invalid_uid(websocket_client: WebSocketTestClient, test_client: httpx.AsyncClient, uid: str, expected_status: int):
     """Tests that endpoints reject invalid UIDs."""
     response_get = await test_client.get(f"/{uid}")
-    assert response_get.status_code == expected_status
+    assert response_get.status_code == expected_status, f"GET /{uid} should return {expected_status}, got {response_get.status_code}"
 
     response_put = await test_client.put(f"/{uid}/test.txt")
-    assert response_put.status_code == expected_status
+    assert response_put.status_code == expected_status, f"PUT /{uid}/test.txt should return {expected_status}, got {response_put.status_code}"
 
     with pytest.raises((ConnectionClosedError, InvalidStatus)):
         async with websocket_client.websocket_connect(f"/send/{uid}") as _:  # type: ignore
@@ -33,7 +33,7 @@ async def test_slash_in_uid_routes_to_404(test_client: httpx.AsyncClient):
     """Tests that UIDs with slashes get handled as separate routes and return 404."""
     # The "id/with/slash" gets parsed as path params, so it hits different routes
     response = await test_client.get("/id/with/slash")
-    assert response.status_code == 404
+    assert response.status_code == 404, f"UID with slashes should return 404, got {response.status_code}"
 
 
 @pytest.mark.anyio
@@ -58,7 +58,7 @@ async def test_transfer_id_already_used(websocket_client: WebSocketTestClient):
                 'file_type': file_metadata.type
             })
             response = await ws2.recv()
-            assert "Error: Transfer ID is already used." in response
+            assert "Error: Transfer ID is already used" in response
 
 
 # @pytest.mark.anyio
@@ -88,7 +88,7 @@ async def test_transfer_id_already_used(websocket_client: WebSocketTestClient):
 
 @pytest.mark.anyio
 async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
-    """Tests that the sender waits for receiver reconnection with resumable transfers."""
+    """Tests that the sender waits for receiver reconnection."""
     uid = "receiver-disconnect"
     file_content, file_metadata = generate_test_file(size_in_kb=128)  # Larger file
 
@@ -114,7 +114,7 @@ async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_cl
                 if i >= 10:  # Send enough chunks before receiver disconnects
                     break
 
-            # With resumable transfers, sender now waits for reconnection
+            # Sender now waits for reconnection
             await anyio.sleep(2.0)
             # Transfer should continue waiting, not error immediately
 
@@ -188,7 +188,86 @@ async def test_browser_download_page(test_client: httpx.AsyncClient, websocket_c
         response = await test_client.get(f"/{uid}", headers=headers)
         await anyio.sleep(0.1)
 
-        assert response.status_code == 200
-        assert "text/html" in response.headers['content-type']
-        assert "Ready to download" in response.text
-        assert "Download File" in response.text
+        assert response.status_code == 200, f"Browser download page should return 200, got {response.status_code}"
+        assert "text/html" in response.headers['content-type'], f"Browser should get HTML content-type, got {response.headers.get('content-type')}"
+        assert "Ready to download" in response.text, "Download page should contain 'Ready to download' text"
+        assert "Download File" in response.text, "Download page should contain 'Download File' text"
+
+
+@pytest.mark.anyio
+async def test_range_download_basic(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
+    """Test basic HTTP Range header support."""
+    uid = "range-basic"
+    file_content, file_metadata = generate_test_file(size_in_kb=32)
+
+    # Upload file first
+    async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
+        await ws.send_json({
+            'file_name': file_metadata.name,
+            'file_size': file_metadata.size,
+            'file_type': file_metadata.type
+        })
+
+        async def download_with_range():
+            await anyio.sleep(0.5)  # Let upload start
+
+            # Test range request
+            headers = {'Range': 'bytes=0-8191'}
+            response = await test_client.get(f"/{uid}?download=true", headers=headers)
+            assert response.status_code == 206, f"Range request should return 206 Partial Content, got {response.status_code}"
+            assert 'Content-Range' in response.headers, "Response should include Content-Range header for partial content"
+            assert len(response.content) == 8192, f"Range 0-8191 should return 8192 bytes, got {len(response.content)}"
+            return response.content
+
+        async with anyio.create_task_group() as tg:
+            download_task = tg.start_soon(download_with_range)
+
+            # Wait for receiver then upload
+            response = await ws.recv()
+            assert response == "Go for file chunks", f"Expected 'Go for file chunks' signal, got '{response}'"
+
+            # Upload the file
+            chunks = [file_content[i:i + 4096] for i in range(0, len(file_content), 4096)]
+            for chunk in chunks:
+                await ws.send_bytes(chunk)
+                await anyio.sleep(0.01)
+
+            await ws.send_bytes(b'')  # End marker
+
+
+@pytest.mark.anyio
+async def test_multiple_range_requests(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
+    """Test multiple HTTP range requests to the same file."""
+    uid = "multi-range"
+    file_content = b'a' * 8192 + b'b' * 8192 + b'c' * 8192 + b'd' * 8192
+    file_metadata = generate_test_file(size_in_kb=32)[1]
+    file_metadata.size = len(file_content)
+
+    # Upload the file first
+    async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
+        await ws.send_json({
+            'file_name': file_metadata.name,
+            'file_size': file_metadata.size,
+            'file_type': file_metadata.type
+        })
+
+        async def download_full():
+            await anyio.sleep(0.5)
+            # First download the full file to ensure upload completes
+            response = await test_client.get(f"/{uid}?download=true")
+            assert response.status_code == 200, f"Full download should return 200 OK, got {response.status_code}"
+            assert len(response.content) == 32768, f"Full file should be 32768 bytes, got {len(response.content)}"
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(download_full)
+
+            # Upload the file
+            response = await ws.recv()
+            assert response == "Go for file chunks", f"Expected 'Go for file chunks' signal, got '{response}'"
+
+            # Send the data
+            for chunk_data in [b'a' * 8192, b'b' * 8192, b'c' * 8192, b'd' * 8192]:
+                await ws.send_bytes(chunk_data)
+                await anyio.sleep(0.01)
+
+            await ws.send_bytes(b'')

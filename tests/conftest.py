@@ -1,4 +1,5 @@
 import os
+import h11
 import time
 import httpx
 import pytest
@@ -107,17 +108,17 @@ def live_server():
     yield f'127.0.0.1:{port}'
 
     print()
-    for name in ['uvicorn', 'redis']:
-        process = processes.get(name)
+    for process_name in ['uvicorn', 'redis']:
+        process = processes.get(process_name)
         if not process or process.poll() is not None:
             continue
 
-        log.debug(f"- Terminating {name} process")
+        log.debug(f"- Terminating {process_name} process")
         process.terminate()
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            log.warning(f"- {name} process did not terminate in time, killing it")
+            log.warning(f"- {process_name} process did not terminate in time, killing it")
             process.kill()
 
 
@@ -127,6 +128,7 @@ async def test_client(live_server: str) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(base_url=f'http://{live_server}') as client:
         print()
         yield client
+
 
 
 @pytest.fixture

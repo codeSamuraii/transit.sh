@@ -10,8 +10,8 @@ from lib.metadata import FileMetadata
 
 def generate_test_file(size_in_kb: int = 10) -> tuple[bytes, FileMetadata]:
     """Generates a test file with specified size in KB."""
-    chunk_generator = ((letter * 1024).encode() for letter in chain.from_iterable(repeat(ascii_letters)))
-    content = b''.join(next(chunk_generator) for _ in range(size_in_kb))
+    chunk_generator = ((str(letter) * 32).encode() for letter in chain.from_iterable(repeat(ascii_letters)))
+    content = b''.join(next(chunk_generator) for _ in range(size_in_kb * 1024 // 32))
 
     metadata = FileMetadata(
         name="test_file.bin",
