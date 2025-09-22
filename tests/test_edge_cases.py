@@ -6,12 +6,13 @@ import httpx
 
 from tests.helpers import generate_test_file
 from tests.ws_client import WebSocketTestClient
+from tests.http_client import HTTPTestClient
 from lib.logging import get_logger
 log = get_logger('edge-cases')
 
 
 @pytest.mark.anyio
-async def test_empty_file_transfer(websocket_client: WebSocketTestClient, test_client: httpx.AsyncClient):
+async def test_empty_file_transfer(websocket_client: WebSocketTestClient, test_client: HTTPTestClient):
     """Test transfer of empty file (0 bytes)."""
     uid = "empty-file"
     file_content = b'x'  # Minimal 1-byte file
@@ -45,7 +46,7 @@ async def test_empty_file_transfer(websocket_client: WebSocketTestClient, test_c
 
 
 @pytest.mark.anyio
-async def test_file_with_special_characters(websocket_client: WebSocketTestClient, test_client: httpx.AsyncClient):
+async def test_file_with_special_characters(websocket_client: WebSocketTestClient, test_client: HTTPTestClient):
     """Test file transfer with special characters in filename."""
     uid = "special-chars"
     file_content, file_metadata = generate_test_file(size_in_kb=8)
@@ -78,7 +79,7 @@ async def test_file_with_special_characters(websocket_client: WebSocketTestClien
 
 
 @pytest.mark.anyio
-async def test_http_upload_size_limit(test_client: httpx.AsyncClient):
+async def test_http_upload_size_limit(test_client: HTTPTestClient):
     """Test that HTTP upload enforces 1GiB size limit."""
     uid = "http-size-limit"
 
@@ -121,7 +122,7 @@ async def test_sender_timeout_no_receiver(websocket_client: WebSocketTestClient)
 
 
 @pytest.mark.anyio
-async def test_concurrent_receivers_rejected(websocket_client: WebSocketTestClient, test_client: httpx.AsyncClient):
+async def test_concurrent_receivers_rejected(websocket_client: WebSocketTestClient, test_client: HTTPTestClient):
     """Test that only one receiver can connect at a time for normal downloads."""
     uid = "concurrent-receivers"
     file_content, file_metadata = generate_test_file(size_in_kb=32)
@@ -225,7 +226,7 @@ async def test_missing_metadata_fields(websocket_client: WebSocketTestClient):
 
 
 @pytest.mark.anyio
-async def test_sender_disconnect_during_transfer(websocket_client: WebSocketTestClient, test_client: httpx.AsyncClient):
+async def test_sender_disconnect_during_transfer(websocket_client: WebSocketTestClient, test_client: HTTPTestClient):
     """Test that receiver handles sender disconnection gracefully."""
     uid = "sender-disconnect"
     file_content, file_metadata = generate_test_file(size_in_kb=64)
@@ -279,7 +280,7 @@ async def test_sender_disconnect_during_transfer(websocket_client: WebSocketTest
 
 
 @pytest.mark.anyio
-async def test_cleanup_after_transfer(websocket_client: WebSocketTestClient, test_client: httpx.AsyncClient):
+async def test_cleanup_after_transfer(websocket_client: WebSocketTestClient, test_client: HTTPTestClient):
     """Test that transfer is cleaned up after completion."""
     uid = "cleanup-test"
     file_content, file_metadata = generate_test_file(size_in_kb=8)
@@ -317,7 +318,7 @@ async def test_cleanup_after_transfer(websocket_client: WebSocketTestClient, tes
 
 
 @pytest.mark.anyio
-async def test_large_file_streaming(websocket_client: WebSocketTestClient, test_client: httpx.AsyncClient):
+async def test_large_file_streaming(websocket_client: WebSocketTestClient, test_client: HTTPTestClient):
     """Test streaming of larger files to verify memory efficiency."""
     uid = "large-file"
     file_content, file_metadata = generate_test_file(size_in_kb=512)  # 512KB test file

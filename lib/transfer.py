@@ -1,5 +1,5 @@
 import anyio
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, Tuple
 from fastapi import WebSocketDisconnect
 
 from lib.store import Store
@@ -114,6 +114,123 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
             self.warning(f"◆ {peer_type.capitalize()} did not reconnect in time")
             return False
 
+    async def _get_next_chunk(self, last_chunk_id: str, is_range_request: bool) -> Optional[Tuple[str, bytes]]:
+        """Get next chunk from stream. Returns None if no more data available."""
+        if is_range_request:
+            result = await self.store.get_chunk_by_range(last_chunk_id)
+            if not result:
+                if not await self._should_wait_for_sender():
+                    return None
+                return ('wait', None)
+            return result
+        else:
+            return await self.store.get_next_chunk(self.STREAM_TIMEOUT, last_id=last_chunk_id)
+
+    async def _should_wait_for_sender(self) -> bool:
+        """Check if we should wait for sender to reconnect or give up."""
+        sender_state = await self.store.get_sender_state()
+        if sender_state == ClientState.COMPLETE:
+            return False
+        elif sender_state == ClientState.DISCONNECTED:
+            if not await self._wait_for_reconnection("sender"):
+                await self.store.set_receiver_state(ClientState.ERROR)
+                return False
+        return True
+
+    def _adjust_chunk_for_range(self, chunk_data: bytes, stream_position: int,
+                                start_byte: int, bytes_sent: int, bytes_to_send: int) -> Tuple[Optional[bytes], int]:
+        """Adjust chunk data for byte range. Returns (data_to_send, new_stream_position)."""
+        new_position = stream_position
+
+        # Skip bytes before start_byte
+        if stream_position < start_byte:
+            skip = min(len(chunk_data), start_byte - stream_position)
+            chunk_data = chunk_data[skip:]
+            new_position += skip
+
+            # Still haven't reached start? Skip entire chunk
+            if new_position < start_byte:
+                new_position += len(chunk_data)
+                return None, new_position
+
+        # Trim to remaining bytes needed
+        if chunk_data and bytes_sent + len(chunk_data) > bytes_to_send:
+            chunk_data = chunk_data[:bytes_to_send - bytes_sent]
+
+        return chunk_data if chunk_data else None, new_position
+
+    async def _save_progress_if_needed(self, stream_position: int, last_chunk_id: str, force: bool = False):
+        """Save download progress periodically or when forced."""
+        if force or stream_position % (64 * 1024) == 0:
+            await self.store.save_download_progress(
+                bytes_downloaded=stream_position,
+                last_read_id=last_chunk_id
+            )
+            if force:
+                self.debug(f"▼ Progress saved: {stream_position} bytes")
+
+    async def _initialize_download_state(self, start_byte: int, is_range_request: bool) -> Tuple[int, str]:
+        """Initialize download state and return (stream_position, last_chunk_id)."""
+        stream_position = 0
+        last_chunk_id = '0'
+
+        if start_byte > 0:
+            self.info(f"▼ Starting download from byte {start_byte}")
+            if not is_range_request:
+                progress = await self.store.get_download_progress()
+                if progress and progress.bytes_downloaded >= start_byte:
+                    last_chunk_id = progress.last_read_id
+                    stream_position = progress.bytes_downloaded
+
+        return stream_position, last_chunk_id
+
+    async def _finalize_download_status(self, bytes_sent: int, stream_position: int,
+                                       start_byte: int, end_byte: Optional[int],
+                                       last_chunk_id: str):
+        """Update final download status based on what was transferred."""
+        if end_byte is not None:
+            self.info(f"▼ Range download complete ({bytes_sent} bytes from {start_byte}-{end_byte})")
+            return
+
+        total_downloaded = start_byte + bytes_sent
+        if total_downloaded >= self.file.size:
+            self.info("▼ Full download complete")
+            await self.store.set_receiver_state(ClientState.COMPLETE)
+        else:
+            self.info(f"▼ Download incomplete ({total_downloaded}/{self.file.size} bytes)")
+            await self._save_progress_if_needed(stream_position, last_chunk_id, force=True)
+
+    async def _handle_download_disconnect(self, error: Exception, stream_position: int, last_chunk_id: str):
+        """Handle download disconnection errors."""
+        self.warning(f"▼ Download disconnected: {error}")
+        await self.store.save_download_progress(
+            bytes_downloaded=stream_position,
+            last_read_id=last_chunk_id
+        )
+        await self.store.set_receiver_state(ClientState.DISCONNECTED)
+
+        if not await self._wait_for_reconnection("receiver"):
+            await self.store.set_receiver_state(ClientState.ERROR)
+            await self.set_interrupted()
+
+    async def _handle_download_timeout(self, stream_position: int, last_chunk_id: str):
+        """Handle download timeout by checking sender state."""
+        self.info("▼ Timeout waiting for data")
+        sender_state = await self.store.get_sender_state()
+        if sender_state == ClientState.DISCONNECTED:
+            if not await self._wait_for_reconnection("sender"):
+                await self.store.set_receiver_state(ClientState.ERROR)
+                return False
+        else:
+            raise TimeoutError("Download timeout")
+        return True
+
+    async def _handle_download_fatal_error(self, error: Exception):
+        """Handle unexpected download errors."""
+        self.error(f"▼ Unexpected download error: {error}", exc_info=True)
+        await self.store.set_receiver_state(ClientState.ERROR)
+        await self.set_interrupted()
+
     async def collect_upload(self, stream: AsyncIterator[bytes], resume_from: int = 0) -> None:
         """Collect file data from sender and store in Redis stream."""
         bytes_uploaded = resume_from
@@ -195,135 +312,61 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
 
     async def supply_download(self, start_byte: int = 0, end_byte: Optional[int] = None) -> AsyncIterator[bytes]:
         """Stream file data to the receiver."""
-        stream_position = 0  # Current position in the stream we've read to
-        bytes_sent = 0       # Bytes sent to client
+        bytes_sent = 0
         bytes_to_send = (end_byte - start_byte + 1) if end_byte else (self.file.size - start_byte)
-        last_chunk_id = '0'
         is_range_request = end_byte is not None
 
+        stream_position, last_chunk_id = await self._initialize_download_state(start_byte, is_range_request)
         await self.store.set_receiver_state(ClientState.ACTIVE)
-
-        if start_byte > 0:
-            self.info(f"▼ Starting download from byte {start_byte}")
-            if not is_range_request:
-                # For live streams starting mid-file, check if we have previous progress
-                progress = await self.store.get_download_progress()
-                if progress and progress.bytes_downloaded >= start_byte:
-                    last_chunk_id = progress.last_read_id
-                    stream_position = progress.bytes_downloaded
 
         self.debug(f"▼ Range request: {start_byte}-{end_byte or 'end'}, to_send: {bytes_to_send}")
 
         try:
             while bytes_sent < bytes_to_send:
-                try:
-                    if is_range_request:
-                        # For range requests, use non-blocking reads from existing stream data
-                        result = await self.store.get_chunk_by_range(last_chunk_id)
-                        if not result:
-                            # Check if sender is still uploading
-                            sender_state = await self.store.get_sender_state()
-                            if sender_state == ClientState.COMPLETE:
-                                # Upload is complete but no more chunks - we're done
-                                break
-                            elif sender_state == ClientState.DISCONNECTED:
-                                if not await self._wait_for_reconnection("sender"):
-                                    await self.store.set_receiver_state(ClientState.ERROR)
-                                    return
-                            await anyio.sleep(0.1)
-                            continue
-                        chunk_id, chunk_data = result
-                    else:
-                        # For live streams, use blocking reads
-                        chunk_id, chunk_data = await self.store.get_next_chunk(
-                            timeout=self.STREAM_TIMEOUT,
-                            last_id=last_chunk_id
-                        )
+                # Get next chunk
+                result = await self._get_next_chunk(last_chunk_id, is_range_request)
+                if result is None:
+                    break
+                if result[0] == 'wait':
+                    await anyio.sleep(0.1)
+                    continue
 
-                    last_chunk_id = chunk_id
+                chunk_id, chunk_data = result
+                last_chunk_id = chunk_id
 
-                    if chunk_data == self.DONE_FLAG:
-                        self.debug("▼ Done marker received")
-                        await self.store.set_receiver_state(ClientState.COMPLETE)
-                        break
-                    elif chunk_data == self.DEAD_FLAG:
-                        self.warning("▼ Dead marker received")
-                        await self.store.set_receiver_state(ClientState.ERROR)
-                        return
-
-                    # Skip bytes until we reach start_byte
-                    if stream_position < start_byte:
-                        bytes_in_chunk = len(chunk_data)
-                        skip = min(bytes_in_chunk, start_byte - stream_position)
-                        chunk_data = chunk_data[skip:]
-                        stream_position += skip
-
-                        # If we still haven't reached start_byte, move to next chunk
-                        if stream_position < start_byte:
-                            stream_position += len(chunk_data)
-                            continue
-
-                    # Send only the bytes we need for this range
-                    if len(chunk_data) > 0:
-                        remaining = bytes_to_send - bytes_sent
-                        if len(chunk_data) > remaining:
-                            chunk_data = chunk_data[:remaining]
-
-                        yield chunk_data
-                        bytes_sent += len(chunk_data)
-                        stream_position += len(chunk_data)
-
-                        # Save progress periodically for resumption
-                        if stream_position % (64 * 1024) == 0:
-                            await self.store.save_download_progress(
-                                bytes_downloaded=stream_position,
-                                last_read_id=last_chunk_id
-                            )
-
-                except TimeoutError:
-                    self.info("▼ Timeout waiting for data")
-                    sender_state = await self.store.get_sender_state()
-                    if sender_state == ClientState.DISCONNECTED:
-                        if not await self._wait_for_reconnection("sender"):
-                            await self.store.set_receiver_state(ClientState.ERROR)
-                            return
-                    else:
-                        raise
-
-            # Determine completion status
-            if is_range_request:
-                # For range requests, just log completion but don't mark transfer as complete
-                # Multiple ranges may be downloading different parts of the same file
-                self.info(f"▼ Range download complete ({bytes_sent} bytes from {start_byte}-{end_byte or 'end'})")
-            else:
-                # For full downloads, check if entire file was downloaded
-                total_downloaded = start_byte + bytes_sent
-                if total_downloaded >= self.file.size:
-                    self.info("▼ Full download complete")
+                # Check for control flags
+                if chunk_data == self.DONE_FLAG:
+                    self.debug("▼ Done marker received")
                     await self.store.set_receiver_state(ClientState.COMPLETE)
-                else:
-                    self.info(f"▼ Download incomplete ({total_downloaded}/{self.file.size} bytes)")
-                    await self.store.save_download_progress(
-                        bytes_downloaded=stream_position,
-                        last_read_id=last_chunk_id
-                    )
+                    break
+                elif chunk_data == self.DEAD_FLAG:
+                    self.warning("▼ Dead marker received")
+                    await self.store.set_receiver_state(ClientState.ERROR)
+                    return
 
-        except (ConnectionError, WebSocketDisconnect) as e:
-            self.warning(f"▼ Download disconnected: {e}")
-            await self.store.save_download_progress(
-                bytes_downloaded=stream_position,
-                last_read_id=last_chunk_id
+                # Process chunk for byte range
+                chunk_to_send, stream_position = self._adjust_chunk_for_range(
+                    chunk_data, stream_position, start_byte, bytes_sent, bytes_to_send
+                )
+
+                # Yield data if we have any
+                if chunk_to_send:
+                    yield chunk_to_send
+                    bytes_sent += len(chunk_to_send)
+                    await self._save_progress_if_needed(stream_position, last_chunk_id)
+
+            # Handle completion
+            await self._finalize_download_status(
+                bytes_sent, stream_position, start_byte, end_byte, last_chunk_id
             )
-            await self.store.set_receiver_state(ClientState.DISCONNECTED)
 
-            if not await self._wait_for_reconnection("receiver"):
-                await self.store.set_receiver_state(ClientState.ERROR)
-                await self.set_interrupted()
-
+        except TimeoutError:
+            if not await self._handle_download_timeout(stream_position, last_chunk_id):
+                return
+        except (ConnectionError, WebSocketDisconnect) as e:
+            await self._handle_download_disconnect(e, stream_position, last_chunk_id)
         except Exception as e:
-            self.error(f"▼ Unexpected download error: {e}", exc_info=True)
-            await self.store.set_receiver_state(ClientState.ERROR)
-            await self.set_interrupted()
+            await self._handle_download_fatal_error(e)
 
     async def finalize_download(self):
         """Finalize download and potentially clean up."""

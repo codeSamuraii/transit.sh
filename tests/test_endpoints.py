@@ -8,6 +8,7 @@ from websockets.exceptions import ConnectionClosedError, InvalidStatus
 
 from tests.helpers import generate_test_file
 from tests.ws_client import WebSocketTestClient
+from tests.http_client import HTTPTestClient
 
 
 @pytest.mark.anyio
@@ -15,7 +16,7 @@ from tests.ws_client import WebSocketTestClient
     ("invalid_id!", 400),
     ("bad id", 400),
 ])
-async def test_invalid_uid(websocket_client: WebSocketTestClient, test_client: httpx.AsyncClient, uid: str, expected_status: int):
+async def test_invalid_uid(websocket_client: WebSocketTestClient, test_client: HTTPTestClient, uid: str, expected_status: int):
     """Tests that endpoints reject invalid UIDs."""
     response_get = await test_client.get(f"/{uid}")
     assert response_get.status_code == expected_status, f"GET /{uid} should return {expected_status}, got {response_get.status_code}"
@@ -29,7 +30,7 @@ async def test_invalid_uid(websocket_client: WebSocketTestClient, test_client: h
 
 
 @pytest.mark.anyio
-async def test_slash_in_uid_routes_to_404(test_client: httpx.AsyncClient):
+async def test_slash_in_uid_routes_to_404(test_client: HTTPTestClient):
     """Tests that UIDs with slashes get handled as separate routes and return 404."""
     # The "id/with/slash" gets parsed as path params, so it hits different routes
     response = await test_client.get("/id/with/slash")
@@ -87,7 +88,7 @@ async def test_transfer_id_already_used(websocket_client: WebSocketTestClient):
 
 
 @pytest.mark.anyio
-async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
+async def test_receiver_disconnects(test_client: HTTPTestClient, websocket_client: WebSocketTestClient):
     """Tests that the sender waits for receiver reconnection."""
     uid = "receiver-disconnect"
     file_content, file_metadata = generate_test_file(size_in_kb=128)  # Larger file
@@ -142,7 +143,7 @@ async def test_receiver_disconnects(test_client: httpx.AsyncClient, websocket_cl
 
 
 @pytest.mark.anyio
-async def test_prefetcher_request(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
+async def test_prefetcher_request(test_client: HTTPTestClient, websocket_client: WebSocketTestClient):
     """Tests that prefetcher user agents are served a preview page."""
     uid = "prefetch-test"
     _, file_metadata = generate_test_file()
@@ -169,7 +170,7 @@ async def test_prefetcher_request(test_client: httpx.AsyncClient, websocket_clie
 
 
 @pytest.mark.anyio
-async def test_browser_download_page(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
+async def test_browser_download_page(test_client: HTTPTestClient, websocket_client: WebSocketTestClient):
     """Tests that a browser is served the download page."""
     uid = "browser-download-page"
     _, file_metadata = generate_test_file()
@@ -195,7 +196,7 @@ async def test_browser_download_page(test_client: httpx.AsyncClient, websocket_c
 
 
 @pytest.mark.anyio
-async def test_range_download_basic(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
+async def test_range_download_basic(test_client: HTTPTestClient, websocket_client: WebSocketTestClient):
     """Test basic HTTP Range header support."""
     uid = "range-basic"
     file_content, file_metadata = generate_test_file(size_in_kb=32)
@@ -236,7 +237,7 @@ async def test_range_download_basic(test_client: httpx.AsyncClient, websocket_cl
 
 
 @pytest.mark.anyio
-async def test_multiple_range_requests(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
+async def test_multiple_range_requests(test_client: HTTPTestClient, websocket_client: WebSocketTestClient):
     """Test multiple HTTP range requests to the same file."""
     uid = "multi-range"
     file_content = b'a' * 8192 + b'b' * 8192 + b'c' * 8192 + b'd' * 8192

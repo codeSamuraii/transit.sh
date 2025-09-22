@@ -134,26 +134,22 @@ def test_parse_range_header_beyond_file_size():
     assert result['length'] == 200, "Length should be 200"
 
 
-def test_parse_range_header_invalid():
+@pytest.mark.parametrize("invalid_header", [
+    None,
+    "",
+    "bytes",
+    "bytes=",
+    "kilobytes=0-100",
+    "bytes=abc-def",
+    "notarangeheader",
+    "bytes=100-50"  # start > end
+])
+def test_parse_range_header_invalid(invalid_header):
     """Test parsing invalid range headers."""
     file_size = 10000
 
-    invalid_headers = [
-        None,
-        "",
-        "bytes",
-        "bytes=",
-        "kilobytes=0-100",
-        "bytes=abc-def",
-        "notarangeheader"
-    ]
-
-    for header in invalid_headers:
-        result = parse_range_header(header, file_size)
-        assert result is None, f"Should return None for invalid header: {header}"
-
-    result = parse_range_header("bytes=100-50", file_size)
-    assert result is None, "Should return None when start > end"
+    result = parse_range_header(invalid_header, file_size)
+    assert result is None, f"Should return None for invalid header: {invalid_header}"
 
 
 def test_format_content_range():

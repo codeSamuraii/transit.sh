@@ -1,7 +1,8 @@
 import anyio
+import httpx
 from string import ascii_letters
 from itertools import islice, repeat, chain
-from typing import Tuple, Iterable, AsyncIterator
+from typing import Tuple, Iterable, AsyncIterator, Dict, Any, Optional
 from annotated_types import T
 import anyio.lowlevel
 
@@ -26,3 +27,8 @@ async def chunks(data: bytes, chunk_size: int = 1024) -> AsyncIterator[bytes]:
     for i in range(0, len(data), chunk_size):
         yield data[i:i + chunk_size]
         await anyio.lowlevel.checkpoint()
+
+
+# All WebSocket and HTTP helper functions have been moved to the respective client classes:
+# - WebSocket helpers are now methods in WebSocketWrapper (tests/ws_client.py)
+# - HTTP helpers are now methods in HTTPTestClient (tests/http_client.py)
