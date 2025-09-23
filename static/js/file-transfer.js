@@ -2,6 +2,7 @@ const CHUNK_SIZE_MOBILE = 32 * 1024;                        // 32KiB for mobile 
 const CHUNK_SIZE_DESKTOP = 64 * 1024;                       // 64KiB for desktop devices
 const BUFFER_THRESHOLD_MOBILE = CHUNK_SIZE_MOBILE * 16;     // 512KiB buffer threshold for mobile
 const BUFFER_THRESHOLD_DESKTOP = CHUNK_SIZE_DESKTOP * 16;   // 1MiB buffer threshold for desktop
+const MAX_HASH_SAMPLING = 2 * 1024**2;                      // Sample up to 2MiB for file hash
 const BUFFER_CHECK_INTERVAL = 200;                          // 200ms interval for buffer checks
 const SHARE_LINK_FOCUS_DELAY = 300;                         // 300ms delay before focusing share link
 const TRANSFER_FINALIZE_DELAY = 500;                        // 500ms delay before finalizing transfer
@@ -116,6 +117,46 @@ function updateProgress(elements, progress) {
     }
 }
 
+function saveUploadProgress(key, bytesUploaded, transferId) {
+    try {
+        const progress = {
+            bytesUploaded: bytesUploaded,
+            transferId: transferId,
+            timestamp: Date.now()
+        };
+        localStorage.setItem(key, JSON.stringify(progress));
+        log.debug('Progress saved:', progress);
+    } catch (e) {
+        log.warn('Failed to save progress:', e);
+    }
+}
+
+function getUploadProgress(key) {
+    try {
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            const progress = JSON.parse(saved);
+            // Only use progress if less than 1 hour old
+            if (Date.now() - progress.timestamp < 3600000) {
+                return progress;
+            }
+            localStorage.removeItem(key);
+        }
+    } catch (e) {
+        log.warn('Failed to load progress:', e);
+    }
+    return null;
+}
+
+function clearUploadProgress(key) {
+    try {
+        localStorage.removeItem(key);
+        log.debug('Progress cleared');
+    } catch (e) {
+        log.warn('Failed to clear progress:', e);
+    }
+}
+
 function displayShareLink(elements, transferId) {
     const { shareUrl, shareLink, dropArea } = elements;
     shareUrl.value = `${window.location.origin}/${transferId}`;
@@ -128,9 +169,138 @@ function displayShareLink(elements, transferId) {
     }, SHARE_LINK_FOCUS_DELAY);
 }
 
+function handleWsOpen(ws, file, transferId, elements) {
+    log.info('WebSocket connection opened');
+    const metadata = {
+        file_name: file.name,
+        file_size: file.size,
+        file_type: file.type || 'application/octet-stream'
+    };
+    log.info('Sending file metadata:', metadata);
+    ws.send(JSON.stringify(metadata));
+    elements.statusText.textContent = 'Waiting for the receiver to start the download... (max. 5 minutes)';
+    displayShareLink(elements, transferId);
+}
+
+function handleWsMessage(event, ws, file, elements, abortController, uploadState) {
+    log.debug('WebSocket message received:', event.data);
+    if (event.data === 'Go for file chunks') {
+        log.info('Receiver connected, starting file transfer');
+        elements.statusText.textContent = 'Peer connected. Transferring file...';
+        uploadState.isUploading = true;
+        sendFileInChunks(ws, file, elements, abortController, uploadState);
+    } else if (event.data.startsWith('Resume from:')) {
+        const resumeBytes = parseInt(event.data.split(':')[1].trim());
+        log.info('Resuming from byte:', resumeBytes);
+        elements.statusText.textContent = `Resuming transfer from ${Math.round(resumeBytes / file.size * 100)}%...`;
+        uploadState.isUploading = true;
+        uploadState.resumePosition = resumeBytes;
+        sendFileInChunks(ws, file, elements, abortController, uploadState);
+    } else if (event.data.startsWith('Error')) {
+        log.error('Server error:', event.data);
+        elements.statusText.textContent = event.data;
+        elements.statusText.style.color = 'var(--error)';
+        clearUploadProgress(uploadState.uploadKey);
+        cleanupTransfer(abortController, uploadState);
+    } else {
+        log.warn('Unexpected message:', event.data);
+    }
+}
+
+function handleWsError(error, statusText) {
+    log.error('WebSocket error:', error);
+    statusText.textContent = 'Error: ' + (error.message || 'Connection failed');
+    statusText.style.color = 'var(--error)';
+}
+
+function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+        (window.matchMedia && window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches);
+}
+
+async function requestWakeLock(uploadState) {
+    try {
+        uploadState.wakeLock = await navigator.wakeLock.request('screen');
+        log.info('Wake lock acquired to prevent screen sleep');
+        uploadState.wakeLock.addEventListener('release', () => log.debug('Wake lock released'));
+    } catch (err) {
+        log.warn('Wake lock request failed:', err.message);
+    }
+}
+
+function generateTransferId() {
+    const uuid = self.crypto.randomUUID();
+    const hex = uuid.replace(/-/g, '');
+    const consonants = 'bcdfghjklmnpqrstvwxyz';
+    const vowels = 'aeiou';
+
+    const createWord = (hexSegment) => {
+        let word = '';
+        for (let i = 0; i < hexSegment.length; i++) {
+            const charCode = parseInt(hexSegment[i], 16);
+            word += (i % 2 === 0) ? consonants[charCode % consonants.length] : vowels[charCode % vowels.length];
+        }
+        return word;
+    };
+
+    const word1 = createWord(hex.substring(0, 6));
+    const word2 = createWord(hex.substring(6, 12));
+    const num = parseInt(hex.substring(12, 15), 16) % TRANSFER_ID_MAX_NUMBER;
+
+    const transferId = `${word1}-${word2}-${num}`;
+    log.debug('Generated transfer ID:', transferId);
+    return transferId;
+}
+
+function calculateFileHash(file) {
+    const sample_size = Math.min(file.size, MAX_HASH_SAMPLING);
+    const reader = new FileReader();
+    let hash = 0;
+
+    return new Promise((resolve, reject) => {
+        const processChunk = (offset) => {
+            if (offset >= sample_size) {
+                // Include file size and name in hash for uniqueness
+                hash = hash ^ file.size ^ simpleStringHash(file.name);
+                resolve(Math.abs(hash).toString(16));
+                return;
+            }
+            reader.onerror = () => reject(new Error('Failed to read file chunk'));
+            reader.onload = (e) => {
+                const chunk = new Uint8Array(e.target.result);
+                // Fast hash algorithm (FNV-1a variant)
+                for (let i = 0; i < chunk.length; i++) {
+                    hash = hash ^ chunk[i];
+                    hash = hash * 16777619;
+                    hash = hash >>> 0;
+                }
+
+                processChunk(offset + CHUNK_SIZE_DESKTOP);
+            };
+
+            const end = Math.min(offset + CHUNK_SIZE_DESKTOP, sample_size);
+            const slice = file.slice(offset, end);
+            reader.readAsArrayBuffer(slice);
+        };
+
+        processChunk(0);
+    });
+}
+
+function simpleStringHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash >>> 0; // Convert to 32-bit unsigned
+    }
+    return hash;
+}
+
 function uploadFile(file, elements) {
     const transferId = generateTransferId();
-    const uploadKey = `upload_${transferId}_${file.name}_${file.size}`;
+    const fileHash = calculateFileHash(file);
+    const uploadKey = `upload_${fileHash}`;
     const savedProgress = getUploadProgress(uploadKey);
     const isResume = savedProgress && savedProgress.bytesUploaded > 0;
 
@@ -207,50 +377,6 @@ function uploadFile(file, elements) {
     if (isMobileDevice() && 'wakeLock' in navigator) {
         requestWakeLock(uploadState);
     }
-}
-
-function handleWsOpen(ws, file, transferId, elements) {
-    log.info('WebSocket connection opened');
-    const metadata = {
-        file_name: file.name,
-        file_size: file.size,
-        file_type: file.type || 'application/octet-stream'
-    };
-    log.info('Sending file metadata:', metadata);
-    ws.send(JSON.stringify(metadata));
-    elements.statusText.textContent = 'Waiting for the receiver to start the download... (max. 5 minutes)';
-    displayShareLink(elements, transferId);
-}
-
-function handleWsMessage(event, ws, file, elements, abortController, uploadState) {
-    log.debug('WebSocket message received:', event.data);
-    if (event.data === 'Go for file chunks') {
-        log.info('Receiver connected, starting file transfer');
-        elements.statusText.textContent = 'Peer connected. Transferring file...';
-        uploadState.isUploading = true;
-        sendFileInChunks(ws, file, elements, abortController, uploadState);
-    } else if (event.data.startsWith('Resume from:')) {
-        const resumeBytes = parseInt(event.data.split(':')[1].trim());
-        log.info('Resuming from byte:', resumeBytes);
-        elements.statusText.textContent = `Resuming transfer from ${Math.round(resumeBytes / file.size * 100)}%...`;
-        uploadState.isUploading = true;
-        uploadState.resumePosition = resumeBytes;
-        sendFileInChunks(ws, file, elements, abortController, uploadState);
-    } else if (event.data.startsWith('Error')) {
-        log.error('Server error:', event.data);
-        elements.statusText.textContent = event.data;
-        elements.statusText.style.color = 'var(--error)';
-        clearUploadProgress(uploadState.uploadKey);
-        cleanupTransfer(abortController, uploadState);
-    } else {
-        log.warn('Unexpected message:', event.data);
-    }
-}
-
-function handleWsError(error, statusText) {
-    log.error('WebSocket error:', error);
-    statusText.textContent = 'Error: ' + (error.message || 'Connection failed');
-    statusText.style.color = 'var(--error)';
 }
 
 async function sendFileInChunks(ws, file, elements, abortController, uploadState) {
@@ -361,85 +487,5 @@ function cleanupTransfer(abortController, uploadState) {
     if (uploadState && uploadState.wakeLock) {
         uploadState.wakeLock.release().catch(() => {});
         uploadState.wakeLock = null;
-    }
-}
-
-function isMobileDevice() {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-           (window.matchMedia && window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches);
-}
-
-// Progress persistence functions
-function saveUploadProgress(key, bytesUploaded, transferId) {
-    try {
-        const progress = {
-            bytesUploaded: bytesUploaded,
-            transferId: transferId,
-            timestamp: Date.now()
-        };
-        localStorage.setItem(key, JSON.stringify(progress));
-        log.debug('Progress saved:', progress);
-    } catch (e) {
-        log.warn('Failed to save progress:', e);
-    }
-}
-
-function getUploadProgress(key) {
-    try {
-        const saved = localStorage.getItem(key);
-        if (saved) {
-            const progress = JSON.parse(saved);
-            // Only use progress if less than 1 hour old
-            if (Date.now() - progress.timestamp < 3600000) {
-                return progress;
-            }
-            localStorage.removeItem(key);
-        }
-    } catch (e) {
-        log.warn('Failed to load progress:', e);
-    }
-    return null;
-}
-
-function clearUploadProgress(key) {
-    try {
-        localStorage.removeItem(key);
-        log.debug('Progress cleared');
-    } catch (e) {
-        log.warn('Failed to clear progress:', e);
-    }
-}
-
-function generateTransferId() {
-    const uuid = self.crypto.randomUUID();
-    const hex = uuid.replace(/-/g, '');
-    const consonants = 'bcdfghjklmnpqrstvwxyz';
-    const vowels = 'aeiou';
-
-    const createWord = (hexSegment) => {
-        let word = '';
-        for (let i = 0; i < hexSegment.length; i++) {
-            const charCode = parseInt(hexSegment[i], 16);
-            word += (i % 2 === 0) ? consonants[charCode % consonants.length] : vowels[charCode % vowels.length];
-        }
-        return word;
-    };
-
-    const word1 = createWord(hex.substring(0, 6));
-    const word2 = createWord(hex.substring(6, 12));
-    const num = parseInt(hex.substring(12, 15), 16) % TRANSFER_ID_MAX_NUMBER;
-
-    const transferId = `${word1}-${word2}-${num}`;
-    log.debug('Generated transfer ID:', transferId);
-    return transferId;
-}
-
-async function requestWakeLock(uploadState) {
-    try {
-        uploadState.wakeLock = await navigator.wakeLock.request('screen');
-        log.info('Wake lock acquired to prevent screen sleep');
-        uploadState.wakeLock.addEventListener('release', () => log.debug('Wake lock released'));
-    } catch (err) {
-        log.warn('Wake lock request failed:', err.message);
     }
 }

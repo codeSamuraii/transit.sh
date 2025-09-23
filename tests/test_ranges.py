@@ -1,5 +1,6 @@
 import anyio
 import pytest
+from asyncio import CancelledError
 
 from tests.helpers import generate_test_file
 from tests.ws_client import WebSocketTestClient
@@ -130,22 +131,23 @@ async def test_range_beyond_file_size(test_client: HTTPTestClient, websocket_cli
     uid = "range-beyond"
     file_content, file_metadata = generate_test_file(size_in_kb=4)
 
+    async def download_range():
+        await anyio.sleep(0.5)
+        # Request range starting beyond file size
+        headers = {'Range': 'bytes=5000-6000'}  # File is only 4096 bytes
+        response = await test_client.get(f"/{uid}?download=true", headers=headers)
+        # Should return full file or 416 Range Not Satisfiable
+        assert response.status_code in [200, 416], f"Range beyond file should return 200 or 416, got {response.status_code}"
+        return response.status_code
+
     async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
         await ws.send_file_metadata(file_metadata)
-
-        async def download_range():
-            await anyio.sleep(0.5)
-            # Request range starting beyond file size
-            headers = {'Range': 'bytes=5000-6000'}  # File is only 4096 bytes
-            response = await test_client.get(f"/{uid}?download=true", headers=headers)
-            # Should return full file or 416 Range Not Satisfiable
-            assert response.status_code in [200, 416], f"Range beyond file should return 200 or 416, got {response.status_code}"
-            return response.status_code
 
         async with anyio.create_task_group() as tg:
             tg.start_soon(download_range)
 
-            await ws.wait_for_go_signal()
+            with pytest.raises((TimeoutError, CancelledError)):
+                await ws.wait_for_go_signal()
             await ws.upload_file_chunks(file_content)
 
 
@@ -155,24 +157,22 @@ async def test_range_with_end_beyond_file(test_client: HTTPTestClient, websocket
     uid = "range-end-beyond"
     file_content, file_metadata = generate_test_file(size_in_kb=4)
 
+    async def download_range():
+        await anyio.sleep(0.5)
+        # Request range with end beyond file size
+        headers = {'Range': 'bytes=2048-8000'}  # File is only 4096 bytes
+        response = await test_client.get(f"/{uid}?download=true", headers=headers)
+        assert response.status_code == 206, f"Range with end beyond file should return 206, got {response.status_code}"
+        assert len(response.content) == 2048, f"Should get from 2048 to end (2048 bytes), got {len(response.content)}"
+
+        content_range = response.headers.get('content-range')
+        assert content_range == 'bytes 2048-4095/4096', f"Content-Range should be 'bytes 2048-4095/4096', got '{content_range}'"
+
     async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
-        await ws.send_file_metadata(file_metadata)
-
-        async def download_range():
-            await anyio.sleep(0.5)
-            # Request range with end beyond file size
-            headers = {'Range': 'bytes=2048-8000'}  # File is only 4096 bytes
-            response = await test_client.get(f"/{uid}?download=true", headers=headers)
-            assert response.status_code == 206, f"Range with end beyond file should return 206, got {response.status_code}"
-            assert len(response.content) == 2048, f"Should get from 2048 to end (2048 bytes), got {len(response.content)}"
-
-            content_range = response.headers.get('content-range')
-            assert content_range == 'bytes 2048-4095/4096', f"Content-Range should be 'bytes 2048-4095/4096', got '{content_range}'"
-            return response.content
-
         async with anyio.create_task_group() as tg:
             tg.start_soon(download_range)
 
+            await ws.send_file_metadata(file_metadata)
             await ws.wait_for_go_signal()
             await ws.upload_file_chunks(file_content)
 
@@ -190,21 +190,19 @@ async def test_invalid_range_header(test_client: HTTPTestClient, websocket_clien
     uid = f"invalid-range-{hash(invalid_range) % 10000}"  # Unique UID for each test
     file_content, file_metadata = generate_test_file(size_in_kb=4)
 
+    async def test_invalid_ranges():
+        await anyio.sleep(0.5)
+        headers = {'Range': invalid_range}
+        response = await test_client.get(f"/{uid}?download=true", headers=headers, timeout=3.0)
+        # Should return full file (416) when range is invalid
+        assert response.status_code == 416, \
+            f"Invalid range '{invalid_range}' should return Range Not Satisfiable (416), got {response.status_code}"
+
     async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
-        async def test_invalid_ranges():
-            await anyio.sleep(0.5)
-            headers = {'Range': invalid_range}
-            response = await test_client.get(f"/{uid}?download=true", headers=headers)
-
-            # Should return full file (200) when range is invalid
-            assert response.status_code == 200, \
-                f"Invalid range '{invalid_range}' should return full file (200), got {response.status_code}"
-            assert len(response.content) == file_metadata.size, \
-                f"Should get full file for invalid range, got {len(response.content)} bytes"
-
         async with anyio.create_task_group() as tg:
             tg.start_soon(test_invalid_ranges)
-            await ws.upload_with_metadata(file_content, file_metadata)
+            with pytest.raises(TimeoutError):
+                await ws.upload_with_metadata(file_content, file_metadata, wait_for_go=0.5)
 
 
 @pytest.mark.anyio

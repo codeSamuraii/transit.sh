@@ -100,47 +100,48 @@ async def http_download(
         return templates.TemplateResponse(request, "download.html",
             transfer.file.to_readable_dict() | {'receiver_connected': await transfer.is_receiver_connected()})
 
-    range_request = parse_range_header(range_header, file_size)
-    is_resume = range_request is not None
+    is_range_request = bool(range_header)
+    requested_range = parse_range_header(range_header, file_size)
 
-    if is_resume:
-        log.info(f"▼ Range request detected: bytes={range_request['start']}-{range_request['end']}")
+    if is_range_request and not requested_range:
+        log.warning("▼ Invalid Range header")
+        raise HTTPException(status_code=416, detail="Range header is invalid")
 
+    elif is_range_request and requested_range:
+        transfer.info(f"▼ Starting partial download (from byte {requested_range['start']})...")
         await transfer.set_client_connected()
 
-        transfer.info(f"▼ Starting partial download from byte {range_request['start']}")
         data_stream = StreamingResponse(
-            transfer.supply_download(
-                start_byte=range_request['start'],
-                end_byte=range_request['end']
-            ),
+            transfer.supply_download(start_byte=requested_range['start'], end_byte=requested_range['end']),
             status_code=206,  # Partial Content
             media_type=file_type,
             background=BackgroundTask(transfer.finalize_download),
             headers={
                 "Content-Disposition": f"attachment; filename={file_name}",
-                "Content-Range": format_content_range(range_request['start'], range_request['end'], file_size),
-                "Content-Length": str(range_request['length']),
+                "Content-Range": format_content_range(requested_range['start'], requested_range['end'], file_size),
+                "Content-Length": str(requested_range['length']),
                 "Accept-Ranges": "bytes"
             }
         )
-    else:
-        if not await transfer.set_receiver_connected():
-            raise HTTPException(status_code=409, detail="A client is already downloading this file")
 
+        return data_stream
+
+    if not await transfer.set_receiver_connected():
+        raise HTTPException(status_code=409, detail="A client is already downloading this file")
+    else:
         await transfer.set_client_connected()
 
-        transfer.info("▼ Starting download...")
-        data_stream = StreamingResponse(
-            transfer.supply_download(),
-            status_code=200,
-            media_type=file_type,
-            background=BackgroundTask(transfer.finalize_download),
-            headers={
-                "Content-Disposition": f"attachment; filename={file_name}",
-                "Content-Length": str(file_size),
-                "Accept-Ranges": "bytes"
-            }
-        )
+    transfer.info("▼ Starting download...")
+    data_stream = StreamingResponse(
+        transfer.supply_download(),
+        status_code=200,
+        media_type=file_type,
+        background=BackgroundTask(transfer.finalize_download),
+        headers={
+            "Content-Disposition": f"attachment; filename={file_name}",
+            "Content-Length": str(file_size),
+            "Accept-Ranges": "bytes"
+        }
+    )
 
     return data_stream

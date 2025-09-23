@@ -1,8 +1,8 @@
 import json
-from contextlib import asynccontextmanager
-from typing import Any
 import anyio
 import websockets
+from contextlib import asynccontextmanager
+from typing import Any
 
 from lib.metadata import FileMetadata
 
@@ -75,11 +75,16 @@ class WebSocketWrapper:
             'file_type': filetype
         })
 
-    async def wait_for_go_signal(self) -> str:
+    async def wait_for_go_signal(self, timeout: float = 5.0, fail: bool = True):
         """Wait for and verify the 'Go for file chunks' signal."""
-        response = await self.recv()
-        assert response == "Go for file chunks", f"Expected 'Go for file chunks', got '{response}'"
-        return response
+        try:
+            with anyio.fail_after(timeout):
+                response = await self.recv()
+                assert response == "Go for file chunks", f"Expected 'Go for file chunks', got '{response}'"
+                return response
+        except TimeoutError as e:
+            if fail: raise
+            else: print(f"*** Silenced TimeoutError: {e}")
 
     async def upload_file_chunks(self, file_content: bytes, chunk_size: int = 4096, delay: float = 0.01):
         """Upload file content in chunks via WebSocket."""
@@ -107,11 +112,10 @@ class WebSocketWrapper:
                 break
         return bytes_sent
 
-    async def upload_with_metadata(self, file_content: bytes, file_metadata: FileMetadata,
-                                   chunk_size: int = 4096, delay: float = 0.01):
+    async def upload_with_metadata(self, file_content: bytes, file_metadata: FileMetadata, chunk_size: int = 4096, delay: float = 0.01, wait_for_go: float = 5.0):
         """Complete upload flow: send metadata, wait for signal, upload chunks."""
         await self.send_file_metadata(file_metadata)
-        await self.wait_for_go_signal()
+        await self.wait_for_go_signal(timeout=wait_for_go)
         await self.upload_file_chunks(file_content, chunk_size, delay)
 
     def parse_resume_position(self, message: str) -> int:
