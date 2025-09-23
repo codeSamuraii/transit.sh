@@ -1,14 +1,10 @@
-const CHUNK_SIZE_MOBILE = 32 * 1024;                        // 32KiB for mobile devices
-const CHUNK_SIZE_DESKTOP = 64 * 1024;                       // 64KiB for desktop devices
-const BUFFER_THRESHOLD_MOBILE = CHUNK_SIZE_MOBILE * 16;     // 512KiB buffer threshold for mobile
-const BUFFER_THRESHOLD_DESKTOP = CHUNK_SIZE_DESKTOP * 16;   // 1MiB buffer threshold for desktop
-const MAX_HASH_SAMPLING = 2 * 1024**2;                      // Sample up to 2MiB for file hash
-const BUFFER_CHECK_INTERVAL = 200;                          // 200ms interval for buffer checks
-const SHARE_LINK_FOCUS_DELAY = 300;                         // 300ms delay before focusing share link
-const TRANSFER_FINALIZE_DELAY = 500;                        // 500ms delay before finalizing transfer
-const MOBILE_BREAKPOINT = 768;                              // 768px mobile breakpoint
-const TRANSFER_ID_MAX_NUMBER = 1000;                        // Maximum number for transfer ID generation (0-999)
-const DEBUG_LOGS = false;
+const TRANSFER_ID_MAX_NUMBER = 1000;                        // 0-999 / Maximum number for transfer ID suffixes
+const CHUNK_SIZE_MOBILE = 32 * 1024;                        // 32KiB / Chunk size for mobile browsers
+const CHUNK_SIZE_DESKTOP = 64 * 1024;                       // 64KiB / Chunk size for desktop browsers
+const BUFFER_THRESHOLD_MOBILE = CHUNK_SIZE_MOBILE * 16;     // 512KiB / Max. amount of data to put in outgoing buffer for mobile
+const BUFFER_THRESHOLD_DESKTOP = CHUNK_SIZE_DESKTOP * 16;   // 1MiB / Max. amount of data to put in outgoing buffer for desktop
+const MAX_HASH_SAMPLING = 2 * 1024**2;                      // 2MiB / Won't hash more than 2MiB of the file for resuming
+const DEBUG_LOGS = false;                                   // Enable technical debug logs to console
 
 const log = {
     debug: (...args) => DEBUG_LOGS && console.debug(...args),
@@ -60,9 +56,9 @@ function setupEventListeners(elements) {
 
     dropArea.addEventListener('drop', e => handleDrop(e, elements), false);
     dropArea.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', () => {
+    fileInput.addEventListener('change', async () => {
         if (fileInput.files.length) {
-            handleFiles(fileInput.files, elements);
+            await handleFiles(fileInput.files, elements);
         }
     });
 }
@@ -80,21 +76,25 @@ function unhighlight(element) {
     element.classList.remove('highlight');
 }
 
-function handleDrop(e, elements) {
+async function handleDrop(e, elements) {
     const files = e.dataTransfer.files;
-    handleFiles(files, elements);
+    await handleFiles(files, elements);
 }
 
-function handleFiles(files, elements) {
+async function handleFiles(files, elements) {
     if (files.length > 0) {
         const file = files[0];
-        log.info('File selected:', {
-            name: file.name,
-            size: file.size,
-            type: file.type,
-            lastModified: new Date(file.lastModified).toISOString()
-        });
-        uploadFile(file, elements);
+        try {
+            log.info('File selected:', {
+                name: file.name,
+                size: file.size,
+                type: file.type,
+                lastModified: new Date(file.lastModified).toISOString()
+            });
+            await uploadFile(file, elements);
+        } catch (error) {
+            log.error('Failed to handle file:', error);
+        }
     }
 }
 
@@ -133,13 +133,13 @@ function saveUploadProgress(key, bytesUploaded, transferId) {
 
 function getUploadProgress(key) {
     try {
+        const lastHour = Date.now() - 3600 * 1000;
         const saved = localStorage.getItem(key);
-        if (saved) {
-            const progress = JSON.parse(saved);
-            // Only use progress if less than 1 hour old
-            if (Date.now() - progress.timestamp < 3600000) {
-                return progress;
-            }
+        const progress = JSON.parse(saved);
+        if (progress && progress.timestamp >= lastHour) {
+            log.debug('Loaded saved progress:', progress);
+            return progress;
+        } else {
             localStorage.removeItem(key);
         }
     } catch (e) {
@@ -166,7 +166,7 @@ function displayShareLink(elements, transferId) {
     setTimeout(() => {
         shareUrl.focus();
         shareUrl.select();
-    }, SHARE_LINK_FOCUS_DELAY);
+    }, 300);
 }
 
 function handleWsOpen(ws, file, transferId, elements) {
@@ -201,7 +201,7 @@ function handleWsMessage(event, ws, file, elements, abortController, uploadState
         elements.statusText.textContent = event.data;
         elements.statusText.style.color = 'var(--error)';
         clearUploadProgress(uploadState.uploadKey);
-        cleanupTransfer(abortController, uploadState);
+        cleanupTransfer(abortController, uploadState, ws);
     } else {
         log.warn('Unexpected message:', event.data);
     }
@@ -215,16 +215,21 @@ function handleWsError(error, statusText) {
 
 function isMobileDevice() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-        (window.matchMedia && window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches);
+        (window.matchMedia && window.matchMedia(`(max-width: ${768}px)`).matches);
 }
 
 async function requestWakeLock(uploadState) {
     try {
         uploadState.wakeLock = await navigator.wakeLock.request('screen');
         log.info('Wake lock acquired to prevent screen sleep');
-        uploadState.wakeLock.addEventListener('release', () => log.debug('Wake lock released'));
+
+        uploadState.wakeLock.addEventListener('release', () => {
+            log.debug('Wake lock released');
+            uploadState.wakeLock = null;
+        });
     } catch (err) {
         log.warn('Wake lock request failed:', err.message);
+        uploadState.wakeLock = null;
     }
 }
 
@@ -252,39 +257,39 @@ function generateTransferId() {
     return transferId;
 }
 
-function calculateFileHash(file) {
-    const sample_size = Math.min(file.size, MAX_HASH_SAMPLING);
-    const reader = new FileReader();
+async function calculateFileHash(file) {
+    const sampleSize = Math.min(file.size, MAX_HASH_SAMPLING);  //
+    const chunkSize = isMobileDevice() ? CHUNK_SIZE_MOBILE : CHUNK_SIZE_DESKTOP;
     let hash = 0;
 
-    return new Promise((resolve, reject) => {
-        const processChunk = (offset) => {
-            if (offset >= sample_size) {
-                // Include file size and name in hash for uniqueness
-                hash = hash ^ file.size ^ simpleStringHash(file.name);
-                resolve(Math.abs(hash).toString(16));
-                return;
-            }
-            reader.onerror = () => reject(new Error('Failed to read file chunk'));
-            reader.onload = (e) => {
-                const chunk = new Uint8Array(e.target.result);
-                // Fast hash algorithm (FNV-1a variant)
-                for (let i = 0; i < chunk.length; i++) {
-                    hash = hash ^ chunk[i];
-                    hash = hash * 16777619;
-                    hash = hash >>> 0;
-                }
-
-                processChunk(offset + CHUNK_SIZE_DESKTOP);
-            };
-
-            const end = Math.min(offset + CHUNK_SIZE_DESKTOP, sample_size);
+    try {
+        for (let offset = 0; offset < sampleSize; offset += chunkSize) {
+            const end = Math.min(offset + chunkSize, sampleSize);
             const slice = file.slice(offset, end);
-            reader.readAsArrayBuffer(slice);
-        };
 
-        processChunk(0);
-    });
+            const arrayBuffer = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = () => reject(new Error('Failed to read file chunk'));
+                reader.readAsArrayBuffer(slice);
+            });
+
+            const chunk = new Uint8Array(arrayBuffer);
+            // Fast hash algorithm (FNV-1a variant)
+            for (let i = 0; i < chunk.length; i++) {
+                hash = hash ^ chunk[i];
+                hash = hash * 16777619;
+                hash = hash >>> 0;
+            }
+        }
+
+        // Include file size and name in hash for uniqueness
+        hash = hash ^ file.size ^ simpleStringHash(file.name);
+        return Math.abs(hash).toString(16);
+    } catch (error) {
+        log.warn('File hashing error:', error);
+        return Math.floor(Math.random() * 0xFFFFFFFF).toString(16);
+    }
 }
 
 function simpleStringHash(str) {
@@ -297,91 +302,98 @@ function simpleStringHash(str) {
     return hash;
 }
 
-function uploadFile(file, elements) {
-    const transferId = generateTransferId();
-    const fileHash = calculateFileHash(file);
-    const uploadKey = `upload_${fileHash}`;
-    const savedProgress = getUploadProgress(uploadKey);
-    const isResume = savedProgress && savedProgress.bytesUploaded > 0;
+async function uploadFile(file, elements) {
+    try {
+        const transferId = generateTransferId();
+        const fileHash = await calculateFileHash(file);
+        const uploadKey = `upload_${fileHash}`;
+        const savedProgress = getUploadProgress(uploadKey);
+        const isResume = savedProgress && savedProgress.bytesUploaded > 0;
 
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const endpoint = isResume ? 'resume' : 'send';
-    const wsUrl = `${wsProtocol}//${window.location.host}/${endpoint}/${transferId}`;
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const endpoint = isResume ? 'resume' : 'send';
+        const wsUrl = `${wsProtocol}//${window.location.host}/${endpoint}/${transferId}`;
 
-    log.info(isResume ? 'Resuming upload:' : 'Starting upload:', {
-        transferId,
-        fileName: file.name,
-        fileSize: file.size,
-        wsUrl,
-        resumeFrom: savedProgress?.bytesUploaded || 0
-    });
+        log.info(isResume ? 'Resuming upload:' : 'Starting upload:', {
+            transferId,
+            fileName: file.name,
+            fileSize: file.size,
+            wsUrl,
+            resumeFrom: savedProgress?.bytesUploaded || 0
+        });
 
-    const ws = new WebSocket(wsUrl);
-    const abortController = new AbortController();
-    const uploadState = {
-        file: file,
-        transferId: transferId,
-        isUploading: false,
-        wakeLock: null,
-        uploadKey: uploadKey,
-        resumePosition: 0
-    };
+        const ws = new WebSocket(wsUrl);
+        const abortController = new AbortController();
+        const uploadState = {
+            file: file,
+            transferId: transferId,
+            isUploading: false,
+            wakeLock: null,
+            uploadKey: uploadKey,
+            resumePosition: 0
+        };
 
-    showProgress(elements);
+        showProgress(elements);
 
-    ws.onopen = () => handleWsOpen(ws, file, transferId, elements, uploadState);
-    ws.onmessage = (event) => handleWsMessage(event, ws, file, elements, abortController, uploadState);
-    ws.onerror = (error) => handleWsError(error, elements.statusText, uploadState);
-    ws.onclose = (event) => {
-        log.info('WebSocket connection closed:', { code: event.code, reason: event.reason, wasClean: event.wasClean });
-        if (uploadState.isUploading && !event.wasClean) {
-            elements.statusText.textContent = 'Connection lost. Please try uploading again.';
-            elements.statusText.style.color = 'var(--error)';
-        }
-        cleanupTransfer(abortController, uploadState);
-    };
-
-    const handleVisibilityChange = () => {
-        if (document.hidden && uploadState.isUploading) {
-            log.warn('App went to background during active upload');
-            if (isMobileDevice()) {
-                elements.statusText.textContent = '⚠️ Keep app in foreground during upload';
-                elements.statusText.style.color = 'var(--warning)';
-            }
-        } else if (!document.hidden && uploadState.isUploading) {
-            log.info('App returned to foreground');
-            if (ws.readyState !== WebSocket.OPEN) {
+        ws.onopen = () => handleWsOpen(ws, file, transferId, elements, uploadState);
+        ws.onmessage = (event) => handleWsMessage(event, ws, file, elements, abortController, uploadState);
+        ws.onerror = (error) => handleWsError(error, elements.statusText, uploadState);
+        ws.onclose = (event) => {
+            log.info('WebSocket connection closed:', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+            if (uploadState.isUploading && !event.wasClean) {
                 elements.statusText.textContent = 'Connection lost. Please try uploading again.';
                 elements.statusText.style.color = 'var(--error)';
-                uploadState.isUploading = false;
             }
+            cleanupTransfer(abortController, uploadState);
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.hidden && uploadState.isUploading) {
+                log.warn('App went to background during active upload');
+                if (isMobileDevice()) {
+                    elements.statusText.textContent = '⚠️ Keep app in foreground during upload';
+                    elements.statusText.style.color = 'var(--warning)';
+                }
+            } else if (!document.hidden && uploadState.isUploading) {
+                log.info('App returned to foreground');
+                if (ws.readyState !== WebSocket.OPEN) {
+                    elements.statusText.textContent = 'Connection lost. Please try uploading again.';
+                    elements.statusText.style.color = 'var(--error)';
+                    uploadState.isUploading = false;
+                }
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        const handleBeforeUnload = (e) => {
+            if (uploadState.isUploading) {
+                e.preventDefault();
+                e.returnValue = 'File upload in progress. Are you sure you want to leave?';
+                return e.returnValue;
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        window.addEventListener('unload', () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+            cleanupTransfer(abortController, uploadState);
+        }, { once: true });
+
+        if (isMobileDevice() && 'wakeLock' in navigator) {
+            requestWakeLock(uploadState);
         }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    const handleBeforeUnload = (e) => {
-        if (uploadState.isUploading) {
-            e.preventDefault();
-            e.returnValue = 'File upload in progress. Are you sure you want to leave?';
-            return e.returnValue;
-        }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    window.addEventListener('unload', () => {
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
-        window.removeEventListener('beforeunload', handleBeforeUnload);
-        cleanupTransfer(abortController, uploadState);
-    }, { once: true });
-
-    if (isMobileDevice() && 'wakeLock' in navigator) {
-        requestWakeLock(uploadState);
+    } catch (error) {
+        log.error('Failed to initialize upload:', error);
+        elements.statusText.textContent = 'Error: Failed to start upload';
+        elements.statusText.style.color = 'var(--error)';
     }
 }
 
 async function sendFileInChunks(ws, file, elements, abortController, uploadState) {
     const chunkSize = isMobileDevice() ? CHUNK_SIZE_MOBILE : CHUNK_SIZE_DESKTOP;
     const startOffset = uploadState.resumePosition || 0;
+
     log.info('Starting chunked upload:', {
         chunkSize,
         fileSize: file.size,
@@ -390,79 +402,119 @@ async function sendFileInChunks(ws, file, elements, abortController, uploadState
     });
 
     const reader = new FileReader();
-    let offset = startOffset;
     const signal = abortController.signal;
 
     try {
-        while (offset < file.size && !signal.aborted) {
-            await waitForWebSocketBuffer(ws, signal);
-            if (signal.aborted) break;
+        const bytesUploaded = await streamFileChunks(
+            ws, file, reader, signal, startOffset, chunkSize,
+            elements, uploadState
+        );
 
-            const end = Math.min(offset + chunkSize, file.size);
-            const slice = file.slice(offset, end);
-
-            const chunk = await readChunkAsArrayBuffer(reader, slice, signal);
-            if (signal.aborted || !chunk) break;
-
-            ws.send(chunk);
-            offset += chunk.byteLength;
-
-            const progress = offset / file.size;
-            log.debug('Chunk sent:', { offset, progress: `${Math.round(progress * 100)}%`, bufferedAmount: ws.bufferedAmount });
-            updateProgress(elements, progress);
-
-            // Save progress periodically
-            if (offset % (256 * 1024) === 0 || offset === file.size) {
-                saveUploadProgress(uploadState.uploadKey, offset, uploadState.transferId);
-            }
-        }
-
-        if (!signal.aborted && offset >= file.size) {
-            log.info('Upload completed successfully');
-            uploadState.isUploading = false;
-            clearUploadProgress(uploadState.uploadKey);
-            finalizeTransfer(ws, elements.statusText, uploadState);
+        if (!signal.aborted && bytesUploaded >= file.size) {
+            handleUploadSuccess(ws, elements, uploadState);
         }
     } catch (error) {
-        if (!signal.aborted) {
-            log.error('Upload failed:', error);
-            elements.statusText.textContent = `Error: ${error.message || 'Upload failed'}`;
-            ws.close();
-        }
+        handleUploadError(error, signal, elements, ws);
     } finally {
         reader.onload = null;
         reader.onerror = null;
     }
 }
 
+async function streamFileChunks(ws, file, reader, signal, startOffset, chunkSize, elements, uploadState) {
+    let offset = startOffset;
+
+    while (offset < file.size && !signal.aborted) {
+        await waitForWebSocketBuffer(ws, signal);
+        if (signal.aborted) break;
+
+        const chunk = await readNextChunk(file, reader, offset, chunkSize, signal);
+        if (signal.aborted || !chunk) break;
+
+        ws.send(chunk);
+        offset += chunk.byteLength;
+
+        updateUploadProgress(offset, file.size, elements, uploadState);
+    }
+
+    return offset;
+}
+
+function readNextChunk(file, reader, offset, chunkSize, signal) {
+    const end = Math.min(offset + chunkSize, file.size);
+    const slice = file.slice(offset, end);
+    return readChunkAsArrayBuffer(reader, slice, signal);
+}
+
+function updateUploadProgress(offset, fileSize, elements, uploadState) {
+    const progress = offset / fileSize;
+    log.debug('Chunk sent:', {
+        offset,
+        progress: `${Math.round(progress * 100)}%`
+    });
+    updateProgress(elements, progress);
+
+    // Save progress periodically (every 256KB or at completion)
+    if (offset % (256 * 1024) === 0 || offset === fileSize) {
+        saveUploadProgress(uploadState.uploadKey, offset, uploadState.transferId);
+    }
+}
+
+function handleUploadSuccess(ws, elements, uploadState) {
+    log.info('Upload completed successfully');
+    uploadState.isUploading = false;
+    clearUploadProgress(uploadState.uploadKey);
+    finalizeTransfer(ws, elements.statusText, uploadState);
+}
+
+function handleUploadError(error, signal, elements, ws) {
+    if (!signal.aborted) {
+        log.error('Upload failed:', error);
+        elements.statusText.textContent = `Error: ${error.message || 'Upload failed'}`;
+        elements.statusText.style.color = 'var(--error)';
+        ws.close();
+    }
+}
+
 function readChunkAsArrayBuffer(reader, blob, signal) {
+    if (signal.aborted) return null;
+
     return new Promise((resolve, reject) => {
-        if (signal.aborted) return resolve(null);
+        const cleanup = () => {
+            reader.onload = null;
+            reader.onerror = null;
+        };
 
-        reader.onload = e => resolve(e.target.result);
-        reader.onerror = () => reject(new Error('Error reading file'));
-
-        signal.addEventListener('abort', () => {
+        const handleAbort = () => {
             reader.abort();
+            cleanup();
             resolve(null);
-        }, { once: true });
+        };
+
+        signal.addEventListener('abort', handleAbort, { once: true });
+
+        reader.onload = (e) => {
+            signal.removeEventListener('abort', handleAbort);
+            cleanup();
+            resolve(e.target.result);
+        };
+
+        reader.onerror = () => {
+            signal.removeEventListener('abort', handleAbort);
+            cleanup();
+            reject(new Error('Error reading file'));
+        };
 
         reader.readAsArrayBuffer(blob);
     });
 }
 
-function waitForWebSocketBuffer(ws, signal) {
-    return new Promise(resolve => {
-        const threshold = isMobileDevice() ? BUFFER_THRESHOLD_MOBILE : BUFFER_THRESHOLD_DESKTOP;
-        const checkBuffer = () => {
-            if (signal.aborted || ws.bufferedAmount < threshold) {
-                resolve();
-            } else {
-                setTimeout(checkBuffer, BUFFER_CHECK_INTERVAL);
-            }
-        };
-        checkBuffer();
-    });
+async function waitForWebSocketBuffer(ws, signal) {
+    const threshold = isMobileDevice() ? BUFFER_THRESHOLD_MOBILE : BUFFER_THRESHOLD_DESKTOP;
+
+    while (!signal.aborted && ws.bufferedAmount >= threshold) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+    }
 }
 
 function finalizeTransfer(ws, statusText, uploadState) {
@@ -477,7 +529,7 @@ function finalizeTransfer(ws, statusText, uploadState) {
             uploadState.wakeLock = null;
         }
         ws.close();
-    }, TRANSFER_FINALIZE_DELAY);
+    }, 300);
 }
 
 function cleanupTransfer(abortController, uploadState) {
