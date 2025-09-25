@@ -263,18 +263,13 @@ class FileTransfer(metaclass=HasLogging, name_from='uid'):
 
                     await self.store.set_sender_state(ClientState.ACTIVE)
 
-                # Store chunk and update progress
                 last_chunk_id = await self.store.put_chunk(chunk)
                 bytes_uploaded += len(chunk)
                 chunk_count += 1
 
-                # Save progress more frequently for better resumption
-                # Save every 4KB (every chunk in most tests) or every 16KB whichever comes first
                 if chunk_count % 1 == 0 or bytes_uploaded % (16 * 1024) == 0:
                     await self.store.save_upload_progress(bytes_uploaded=bytes_uploaded, last_chunk_id=last_chunk_id)
-                    self.debug(f"△ Progress saved: {bytes_uploaded} bytes, chunk {last_chunk_id}")
 
-            # Final progress save and completion handling
             await self.store.save_upload_progress(bytes_uploaded=bytes_uploaded, last_chunk_id=last_chunk_id)
 
             if bytes_uploaded >= self.file.size:

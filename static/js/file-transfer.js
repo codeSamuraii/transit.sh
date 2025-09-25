@@ -1,10 +1,10 @@
-const TRANSFER_ID_MAX_NUMBER = 1000;                        // 0-999 / Maximum number for transfer ID suffixes
-const CHUNK_SIZE_MOBILE = 32 * 1024;                        // 32KiB / Chunk size for mobile browsers
-const CHUNK_SIZE_DESKTOP = 64 * 1024;                       // 64KiB / Chunk size for desktop browsers
-const BUFFER_THRESHOLD_MOBILE = CHUNK_SIZE_MOBILE * 16;     // 512KiB / Max. amount of data to put in outgoing buffer for mobile
-const BUFFER_THRESHOLD_DESKTOP = CHUNK_SIZE_DESKTOP * 16;   // 1MiB / Max. amount of data to put in outgoing buffer for desktop
-const MAX_HASH_SAMPLING = 2 * 1024**2;                      // 2MiB / Won't hash more than 2MiB of the file for resuming
-const DEBUG_LOGS = false;                                   // Enable technical debug logs to console
+const TRANSFER_ID_MAX_NUMBER = 1000;
+const CHUNK_SIZE_MOBILE = 32 * 1024;
+const CHUNK_SIZE_DESKTOP = 64 * 1024;
+const BUFFER_THRESHOLD_MOBILE = CHUNK_SIZE_MOBILE * 16;
+const BUFFER_THRESHOLD_DESKTOP = CHUNK_SIZE_DESKTOP * 16;
+const MAX_HASH_SAMPLING = 2 * 1024**2;
+const DEBUG_LOGS = false;
 
 const log = {
     debug: (...args) => DEBUG_LOGS && console.debug(...args),
@@ -17,17 +17,7 @@ initFileTransfer();
 
 function initFileTransfer() {
     log.debug('Initializing file transfer interface');
-    const elements = {
-        dropArea: document.getElementById('drop-area'),
-        dropAreaText: document.getElementById('drop-area-text'),
-        fileInput: document.getElementById('file-input'),
-        uploadProgress: document.getElementById('upload-progress'),
-        progressBarFill: document.getElementById('progress-bar-fill'),
-        progressText: document.getElementById('progress-text'),
-        statusText: document.getElementById('status-text'),
-        shareLink: document.getElementById('share-link'),
-        shareUrl: document.getElementById('share-url')
-    };
+    const elements = getUIElements();
 
     if (isMobileDevice() && elements.dropAreaText) {
         elements.dropAreaText.textContent = 'Tap here to select a file';
@@ -38,23 +28,41 @@ function initFileTransfer() {
     log.debug('Event listeners setup complete');
 }
 
+function getUIElements() {
+    return {
+        dropArea: document.getElementById('drop-area'),
+        dropAreaText: document.getElementById('drop-area-text'),
+        fileInput: document.getElementById('file-input'),
+        uploadProgress: document.getElementById('upload-progress'),
+        progressBarFill: document.getElementById('progress-bar-fill'),
+        progressText: document.getElementById('progress-text'),
+        statusText: document.getElementById('status-text'),
+        shareLink: document.getElementById('share-link'),
+        shareUrl: document.getElementById('share-url')
+    };
+}
+
 function setupEventListeners(elements) {
     const { dropArea, fileInput } = elements;
 
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropArea.addEventListener(eventName, preventDefaults, false);
-        document.body.addEventListener(eventName, preventDefaults, false);
+    const dragEvents = ['dragenter', 'dragover', 'dragleave', 'drop'];
+    dragEvents.forEach(eventName => {
+        dropArea.addEventListener(eventName, preventDefaults);
+        document.body.addEventListener(eventName, preventDefaults);
     });
 
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropArea.addEventListener(eventName, () => highlight(dropArea), false);
+    const highlightEvents = ['dragenter', 'dragover'];
+    const unhighlightEvents = ['dragleave', 'drop'];
+
+    highlightEvents.forEach(eventName => {
+        dropArea.addEventListener(eventName, () => dropArea.classList.add('highlight'));
     });
 
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropArea.addEventListener(eventName, () => unhighlight(dropArea), false);
+    unhighlightEvents.forEach(eventName => {
+        dropArea.addEventListener(eventName, () => dropArea.classList.remove('highlight'));
     });
 
-    dropArea.addEventListener('drop', e => handleDrop(e, elements), false);
+    dropArea.addEventListener('drop', e => handleDrop(e, elements));
     dropArea.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', async () => {
         if (fileInput.files.length) {
@@ -66,14 +74,6 @@ function setupEventListeners(elements) {
 function preventDefaults(e) {
     e.preventDefault();
     e.stopPropagation();
-}
-
-function highlight(element) {
-    element.classList.add('highlight');
-}
-
-function unhighlight(element) {
-    element.classList.remove('highlight');
 }
 
 async function handleDrop(e, elements) {
@@ -119,11 +119,7 @@ function updateProgress(elements, progress) {
 
 function saveUploadProgress(key, bytesUploaded, transferId) {
     try {
-        const progress = {
-            bytesUploaded: bytesUploaded,
-            transferId: transferId,
-            timestamp: Date.now()
-        };
+        const progress = { bytesUploaded, transferId, timestamp: Date.now() };
         localStorage.setItem(key, JSON.stringify(progress));
         log.debug('Progress saved:', progress);
     } catch (e) {
@@ -133,17 +129,21 @@ function saveUploadProgress(key, bytesUploaded, transferId) {
 
 function getUploadProgress(key) {
     try {
-        const lastHour = Date.now() - 3600 * 1000;
         const saved = localStorage.getItem(key);
+        if (!saved) return null;
+
         const progress = JSON.parse(saved);
-        if (progress && progress.timestamp >= lastHour) {
+        const lastHour = Date.now() - 3600 * 1000;
+
+        if (progress?.timestamp >= lastHour) {
             log.debug('Loaded saved progress:', progress);
             return progress;
-        } else {
-            localStorage.removeItem(key);
         }
+
+        localStorage.removeItem(key);
     } catch (e) {
         log.warn('Failed to load progress:', e);
+        localStorage.removeItem(key);
     }
     return null;
 }
@@ -189,6 +189,7 @@ function handleWsMessage(event, ws, file, elements, abortController, uploadState
         elements.statusText.textContent = 'Peer connected. Transferring file...';
         uploadState.isUploading = true;
         sendFileInChunks(ws, file, elements, abortController, uploadState);
+
     } else if (event.data.startsWith('Resume from:')) {
         const resumeBytes = parseInt(event.data.split(':')[1].trim());
         log.info('Resuming from byte:', resumeBytes);
@@ -196,12 +197,14 @@ function handleWsMessage(event, ws, file, elements, abortController, uploadState
         uploadState.isUploading = true;
         uploadState.resumePosition = resumeBytes;
         sendFileInChunks(ws, file, elements, abortController, uploadState);
+
     } else if (event.data.startsWith('Error')) {
         log.error('Server error:', event.data);
         elements.statusText.textContent = event.data;
         elements.statusText.style.color = 'var(--error)';
         clearUploadProgress(uploadState.uploadKey);
         cleanupTransfer(abortController, uploadState, ws);
+
     } else {
         log.warn('Unexpected message:', event.data);
     }
@@ -258,7 +261,7 @@ function generateTransferId() {
 }
 
 async function calculateFileHash(file) {
-    const sampleSize = Math.min(file.size, MAX_HASH_SAMPLING);  //
+    const sampleSize = Math.min(file.size, MAX_HASH_SAMPLING);
     const chunkSize = isMobileDevice() ? CHUNK_SIZE_MOBILE : CHUNK_SIZE_DESKTOP;
     let hash = 0;
 
@@ -266,30 +269,29 @@ async function calculateFileHash(file) {
         for (let offset = 0; offset < sampleSize; offset += chunkSize) {
             const end = Math.min(offset + chunkSize, sampleSize);
             const slice = file.slice(offset, end);
-
-            const arrayBuffer = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = e => resolve(e.target.result);
-                reader.onerror = () => reject(new Error('Failed to read file chunk'));
-                reader.readAsArrayBuffer(slice);
-            });
-
+            const arrayBuffer = await readFileSlice(slice);
             const chunk = new Uint8Array(arrayBuffer);
-            // Fast hash algorithm (FNV-1a variant)
+
             for (let i = 0; i < chunk.length; i++) {
-                hash = hash ^ chunk[i];
-                hash = hash * 16777619;
-                hash = hash >>> 0;
+                hash = ((hash ^ chunk[i]) * 16777619) >>> 0;
             }
         }
 
-        // Include file size and name in hash for uniqueness
         hash = hash ^ file.size ^ simpleStringHash(file.name);
         return Math.abs(hash).toString(16);
     } catch (error) {
         log.warn('File hashing error:', error);
         return Math.floor(Math.random() * 0xFFFFFFFF).toString(16);
     }
+}
+
+function readFileSlice(slice) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('Failed to read file chunk'));
+        reader.readAsArrayBuffer(slice);
+    });
 }
 
 function simpleStringHash(str) {
@@ -303,91 +305,122 @@ function simpleStringHash(str) {
 }
 
 async function uploadFile(file, elements) {
+    const fileHash = await calculateFileHash(file);
+    const uploadKey = `upload_${fileHash}`;
+    const savedProgress = getUploadProgress(uploadKey);
+    const isResume = savedProgress?.bytesUploaded > 0;
+    const transferId = savedProgress?.transferId || generateTransferId();
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const endpoint = isResume ? 'resume' : 'send';
+    const wsUrl = `${wsProtocol}//${window.location.host}/${endpoint}/${transferId}`;
+
+    log.info(isResume ? 'Resuming upload:' : 'Starting upload:', {
+        transferId,
+        fileName: file.name,
+        fileSize: file.size,
+        wsUrl,
+        resumeFrom: savedProgress?.bytesUploaded || 0
+    });
+
     try {
-        const transferId = generateTransferId();
-        const fileHash = await calculateFileHash(file);
-        const uploadKey = `upload_${fileHash}`;
-        const savedProgress = getUploadProgress(uploadKey);
-        const isResume = savedProgress && savedProgress.bytesUploaded > 0;
-
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const endpoint = isResume ? 'resume' : 'send';
-        const wsUrl = `${wsProtocol}//${window.location.host}/${endpoint}/${transferId}`;
-
-        log.info(isResume ? 'Resuming upload:' : 'Starting upload:', {
-            transferId,
-            fileName: file.name,
-            fileSize: file.size,
-            wsUrl,
-            resumeFrom: savedProgress?.bytesUploaded || 0
-        });
-
-        const ws = new WebSocket(wsUrl);
-        const abortController = new AbortController();
-        const uploadState = {
-            file: file,
-            transferId: transferId,
-            isUploading: false,
-            wakeLock: null,
-            uploadKey: uploadKey,
-            resumePosition: 0
-        };
-
+        const uploadState = createUploadState(file, transferId, uploadKey);
+        const { ws, abortController } = createWebSocketConnection(wsUrl, file, elements, uploadState);
+        setupPageEventListeners(uploadState, elements, ws, abortController);
         showProgress(elements);
 
-        ws.onopen = () => handleWsOpen(ws, file, transferId, elements, uploadState);
-        ws.onmessage = (event) => handleWsMessage(event, ws, file, elements, abortController, uploadState);
-        ws.onerror = (error) => handleWsError(error, elements.statusText, uploadState);
-        ws.onclose = (event) => {
-            log.info('WebSocket connection closed:', { code: event.code, reason: event.reason, wasClean: event.wasClean });
-            if (uploadState.isUploading && !event.wasClean) {
-                elements.statusText.textContent = 'Connection lost. Please try uploading again.';
-                elements.statusText.style.color = 'var(--error)';
-            }
-            cleanupTransfer(abortController, uploadState);
-        };
-
-        const handleVisibilityChange = () => {
-            if (document.hidden && uploadState.isUploading) {
-                log.warn('App went to background during active upload');
-                if (isMobileDevice()) {
-                    elements.statusText.textContent = '⚠️ Keep app in foreground during upload';
-                    elements.statusText.style.color = 'var(--warning)';
-                }
-            } else if (!document.hidden && uploadState.isUploading) {
-                log.info('App returned to foreground');
-                if (ws.readyState !== WebSocket.OPEN) {
-                    elements.statusText.textContent = 'Connection lost. Please try uploading again.';
-                    elements.statusText.style.color = 'var(--error)';
-                    uploadState.isUploading = false;
-                }
-            }
-        };
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-
-        const handleBeforeUnload = (e) => {
-            if (uploadState.isUploading) {
-                e.preventDefault();
-                e.returnValue = 'File upload in progress. Are you sure you want to leave?';
-                return e.returnValue;
-            }
-        };
-        window.addEventListener('beforeunload', handleBeforeUnload);
-
-        window.addEventListener('unload', () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('beforeunload', handleBeforeUnload);
-            cleanupTransfer(abortController, uploadState);
-        }, { once: true });
-
         if (isMobileDevice() && 'wakeLock' in navigator) {
-            requestWakeLock(uploadState);
+            await requestWakeLock(uploadState);
         }
     } catch (error) {
         log.error('Failed to initialize upload:', error);
         elements.statusText.textContent = 'Error: Failed to start upload';
         elements.statusText.style.color = 'var(--error)';
     }
+}
+
+function createUploadState(file, transferId, uploadKey) {
+    return {
+        file,
+        transferId,
+        isUploading: false,
+        wakeLock: null,
+        uploadKey,
+        resumePosition: 0
+    };
+}
+
+function createWebSocketConnection(wsUrl, file, elements, uploadState) {
+    const ws = new WebSocket(wsUrl);
+    const abortController = new AbortController();
+
+    ws.onopen = () => handleWsOpen(ws, file, uploadState.transferId, elements);
+    ws.onmessage = (event) => handleWsMessage(event, ws, file, elements, abortController, uploadState);
+    ws.onerror = (error) => handleWsError(error, elements.statusText);
+    ws.onclose = (event) => handleWsClose(event, elements, uploadState, abortController);
+
+    return { ws, abortController };
+}
+
+function handleWsClose(event, elements, uploadState, abortController) {
+    log.info('WebSocket connection closed:', {
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean
+    });
+
+    if (uploadState.isUploading && !event.wasClean) {
+        elements.statusText.textContent = 'Connection lost. Please try uploading again.';
+        elements.statusText.style.color = 'var(--error)';
+    }
+    cleanupTransfer(abortController, uploadState);
+}
+
+function setupPageEventListeners(uploadState, elements, ws, abortController) {
+    const handleVisibilityChange = createVisibilityHandler(uploadState, elements, ws);
+    const handleBeforeUnload = createBeforeUnloadHandler(uploadState);
+    const handleUnload = createUnloadHandler(handleVisibilityChange, handleBeforeUnload, abortController, uploadState);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('unload', handleUnload, { once: true });
+}
+
+function createVisibilityHandler(uploadState, elements, ws) {
+    return () => {
+        if (document.hidden && uploadState.isUploading) {
+            log.warn('App went to background during active upload');
+            if (isMobileDevice()) {
+                elements.statusText.textContent = '⚠️ Keep app in foreground during upload';
+                elements.statusText.style.color = 'var(--warning)';
+            }
+        } else if (!document.hidden && uploadState.isUploading) {
+            log.info('App returned to foreground');
+            if (ws.readyState !== WebSocket.OPEN) {
+                elements.statusText.textContent = 'Connection lost. Please try uploading again.';
+                elements.statusText.style.color = 'var(--error)';
+                uploadState.isUploading = false;
+            }
+        }
+    };
+}
+
+function createBeforeUnloadHandler(uploadState) {
+    return (e) => {
+        if (uploadState.isUploading) {
+            e.preventDefault();
+            e.returnValue = 'File upload in progress. Are you sure you want to leave?';
+            return e.returnValue;
+        }
+    };
+}
+
+function createUnloadHandler(visibilityHandler, beforeUnloadHandler, abortController, uploadState) {
+    return () => {
+        document.removeEventListener('visibilitychange', visibilityHandler);
+        window.removeEventListener('beforeunload', beforeUnloadHandler);
+        cleanupTransfer(abortController, uploadState);
+    };
 }
 
 async function sendFileInChunks(ws, file, elements, abortController, uploadState) {
@@ -401,13 +434,11 @@ async function sendFileInChunks(ws, file, elements, abortController, uploadState
         totalChunks: Math.ceil((file.size - startOffset) / chunkSize)
     });
 
-    const reader = new FileReader();
     const signal = abortController.signal;
 
     try {
         const bytesUploaded = await streamFileChunks(
-            ws, file, reader, signal, startOffset, chunkSize,
-            elements, uploadState
+            ws, file, signal, startOffset, chunkSize, elements, uploadState
         );
 
         if (!signal.aborted && bytesUploaded >= file.size) {
@@ -415,20 +446,17 @@ async function sendFileInChunks(ws, file, elements, abortController, uploadState
         }
     } catch (error) {
         handleUploadError(error, signal, elements, ws);
-    } finally {
-        reader.onload = null;
-        reader.onerror = null;
     }
 }
 
-async function streamFileChunks(ws, file, reader, signal, startOffset, chunkSize, elements, uploadState) {
+async function streamFileChunks(ws, file, signal, startOffset, chunkSize, elements, uploadState) {
     let offset = startOffset;
 
     while (offset < file.size && !signal.aborted) {
         await waitForWebSocketBuffer(ws, signal);
         if (signal.aborted) break;
 
-        const chunk = await readNextChunk(file, reader, offset, chunkSize, signal);
+        const chunk = await readNextChunk(file, offset, chunkSize, signal);
         if (signal.aborted || !chunk) break;
 
         ws.send(chunk);
@@ -440,10 +468,12 @@ async function streamFileChunks(ws, file, reader, signal, startOffset, chunkSize
     return offset;
 }
 
-function readNextChunk(file, reader, offset, chunkSize, signal) {
+function readNextChunk(file, offset, chunkSize, signal) {
+    if (signal.aborted) return null;
+
     const end = Math.min(offset + chunkSize, file.size);
     const slice = file.slice(offset, end);
-    return readChunkAsArrayBuffer(reader, slice, signal);
+    return readChunkAsArrayBuffer(slice, signal);
 }
 
 function updateUploadProgress(offset, fileSize, elements, uploadState) {
@@ -454,7 +484,6 @@ function updateUploadProgress(offset, fileSize, elements, uploadState) {
     });
     updateProgress(elements, progress);
 
-    // Save progress periodically (every 256KB or at completion)
     if (offset % (256 * 1024) === 0 || offset === fileSize) {
         saveUploadProgress(uploadState.uploadKey, offset, uploadState.transferId);
     }
@@ -476,10 +505,12 @@ function handleUploadError(error, signal, elements, ws) {
     }
 }
 
-function readChunkAsArrayBuffer(reader, blob, signal) {
+function readChunkAsArrayBuffer(blob, signal) {
     if (signal.aborted) return null;
 
     return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
         const cleanup = () => {
             reader.onload = null;
             reader.onerror = null;
@@ -524,19 +555,18 @@ function finalizeTransfer(ws, statusText, uploadState) {
     setTimeout(() => {
         log.info('Transfer finalized successfully');
         statusText.textContent = '✓ Transfer complete!';
-        if (uploadState.wakeLock) {
-            uploadState.wakeLock.release().catch(() => {});
-            uploadState.wakeLock = null;
-        }
+        releaseWakeLock(uploadState);
         ws.close();
     }, 300);
 }
 
 function cleanupTransfer(abortController, uploadState) {
-    if (abortController) {
-        abortController.abort();
-    }
-    if (uploadState && uploadState.wakeLock) {
+    abortController?.abort();
+    releaseWakeLock(uploadState);
+}
+
+function releaseWakeLock(uploadState) {
+    if (uploadState?.wakeLock) {
         uploadState.wakeLock.release().catch(() => {});
         uploadState.wakeLock = null;
     }
