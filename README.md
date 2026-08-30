@@ -6,7 +6,7 @@
 
 **Transit.sh** enables direct, client-to-client file transfers without intermediary storage. Files are streamed from sender to receiver in real time. It leverages Redis, WebSockets and FastAPI for a modern, scalable architecture.
 
-> **Service Status:** The public instance at [https://transit.sh](https://transit.sh) is a proof-of-concept deployment. While functional, it comes with no service guarantees.
+> **Service Status:** The public instance at [https://transit.sh](https://transit.sh) is no longer functional.
 
 ## Usage
 1.  Open [https://transit.sh](https://transit.sh) (or your local instance) in your browser.
