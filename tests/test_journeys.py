@@ -1,14 +1,13 @@
 import anyio
-import httpx
-import json
 import pytest
 
 from tests.helpers import generate_test_file
 from tests.ws_client import WebSocketTestClient
+from tests.http_client import HTTPTestClient
 
 
 @pytest.mark.anyio
-async def test_websocket_upload_http_download(test_client: httpx.AsyncClient, websocket_client: WebSocketTestClient):
+async def test_websocket_upload_http_download(test_client: HTTPTestClient, websocket_client: WebSocketTestClient):
     """Tests a browser-like upload (WebSocket) and a cURL-like download (HTTP)."""
     uid = "ws-http-journey"
     file_content, file_metadata = generate_test_file(size_in_kb=64)
@@ -16,26 +15,7 @@ async def test_websocket_upload_http_download(test_client: httpx.AsyncClient, we
     async def sender():
         async with websocket_client.websocket_connect(f"/send/{uid}") as ws:
             await anyio.sleep(0.1)
-
-            await ws.websocket.send(json.dumps({
-                'file_name': file_metadata.name,
-                'file_size': file_metadata.size,
-                'file_type': file_metadata.type
-            }))
-            await anyio.sleep(1.0)
-
-            # Wait for receiver to connect
-            response = await ws.websocket.recv()
-            await anyio.sleep(0.1)
-            assert response == "Go for file chunks"
-
-            # Send file
-            chunk_size = 4096
-            for i in range(0, len(file_content), chunk_size):
-                await ws.websocket.send(file_content[i:i + chunk_size])
-                await anyio.sleep(0.025)
-
-            await ws.websocket.send(b'')  # End of file
+            await ws.upload_with_metadata(file_content, file_metadata, delay=0.025)
             await anyio.sleep(0.1)
 
     async def receiver():
@@ -46,8 +26,8 @@ async def test_websocket_upload_http_download(test_client: httpx.AsyncClient, we
             await anyio.sleep(0.1)
 
             response.raise_for_status()
-            assert response.headers['content-length'] == str(file_metadata.size)
-            assert f"filename={file_metadata.name}" in response.headers['content-disposition']
+            assert response.headers['content-length'] == str(file_metadata.size), f"Content-Length header should be {file_metadata.size}, got {response.headers.get('content-length')}"
+            assert f"filename={file_metadata.name}" in response.headers['content-disposition'], f"Content-Disposition should contain filename={file_metadata.name}"
             await anyio.sleep(0.1)
 
             downloaded_content = b''
@@ -57,8 +37,8 @@ async def test_websocket_upload_http_download(test_client: httpx.AsyncClient, we
                 downloaded_content += chunk
                 await anyio.sleep(0.025)
 
-            assert len(downloaded_content) == file_metadata.size
-            assert downloaded_content == file_content
+            assert len(downloaded_content) == file_metadata.size, f"Downloaded size should be {file_metadata.size}, got {len(downloaded_content)}"
+            assert downloaded_content == file_content, f"Downloaded content should match uploaded content"
             await anyio.sleep(0.1)
 
     async with anyio.create_task_group() as tg:
@@ -67,21 +47,17 @@ async def test_websocket_upload_http_download(test_client: httpx.AsyncClient, we
 
 
 @pytest.mark.anyio
-async def test_http_upload_http_download(test_client: httpx.AsyncClient):
+async def test_http_upload_http_download(test_client: HTTPTestClient):
     """Tests a cURL-like upload (HTTP PUT) and download (HTTP GET)."""
     uid = "http-http-journey"
     file_content, file_metadata = generate_test_file(size_in_kb=64)
 
     async def sender():
-        headers = {
-            'Content-Type': file_metadata.type,
-            'Content-Length': str(file_metadata.size)
-        }
-        async with test_client.stream("PUT", f"/{uid}/{file_metadata.name}", content=file_content, headers=headers) as response:
-            await anyio.sleep(1.0)
+        response = await test_client.upload_file_http(uid, file_content, file_metadata)
+        await anyio.sleep(1.0)
 
-            response.raise_for_status()
-            assert response.status_code == 200
+        response.raise_for_status()
+        assert response.status_code == 200, f"HTTP upload should return 200, got {response.status_code}"
         await anyio.sleep(0.1)
 
     async def receiver():
@@ -90,8 +66,8 @@ async def test_http_upload_http_download(test_client: httpx.AsyncClient):
         await anyio.sleep(0.1)
 
         response.raise_for_status()
-        assert response.content == file_content
-        assert len(response.content) == file_metadata.size
+        assert response.content == file_content, "Downloaded content should match uploaded content"
+        assert len(response.content) == file_metadata.size, f"Downloaded size should be {file_metadata.size}, got {len(response.content)}"
         await anyio.sleep(0.1)
 
     async with anyio.create_task_group() as tg:

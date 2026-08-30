@@ -2,168 +2,203 @@ import random
 import anyio
 import redis.asyncio as redis
 from redis.asyncio.client import PubSub
-from typing import Optional, Annotated
+from typing import Optional, Tuple
 
-from lib.logging import HasLogging, get_logger
+from lib.logging import HasLogging
+from lib.models import UploadProgress, DownloadProgress, ClientState
 
 
 class Store(metaclass=HasLogging, name_from='transfer_id'):
-    """
-    Redis-based store for file transfer queues and events.
-    Handles data queuing and event signaling for transfer coordination.
-    """
+    """Redis Stream-based store for file transfers."""
 
-    redis_client: None | redis.Redis = None
+    redis_client: Optional[redis.Redis] = None
+
+    # Expiry times
+    METADATA_EXPIRY = 300
+    EVENT_EXPIRY = 300
+    PROGRESS_EXPIRY = 3600
+    STATE_EXPIRY = 3600
+    CLEANUP_LOCK_EXPIRY = 60
 
     def __init__(self, transfer_id: str):
         self.transfer_id = transfer_id
         self.redis = self.get_redis()
 
-        self._k_queue = self.key('queue')
-        self._k_meta = self.key('metadata')
-        self._k_cleanup = f'cleanup:{transfer_id}'
-        self._k_receiver_connected = self.key('receiver_connected')
+        self._stream_key = f'transfer:{transfer_id}:queue'
+        self._progress_key = f'transfer:{transfer_id}:progress'
+        self._state_key = f'transfer:{transfer_id}:state'
+        self._k_meta = f'transfer:{transfer_id}:metadata'
+        self._k_cleanup = f'transfer:{transfer_id}:cleanup'
+        self._k_receiver_connected = f'transfer:{transfer_id}:receiver_connected'
 
     @classmethod
     def get_redis(cls) -> redis.Redis:
-        """Get the Redis client instance."""
+        """Get Redis client instance."""
         if cls.redis_client is None:
             from app import app
             cls.redis_client = app.state.redis
         return cls.redis_client
 
-    def key(self, name: str) -> str:
-        """Get the Redis key for this transfer with the provided name."""
-        return f'transfer:{self.transfer_id}:{name}'
-
-    ## Queue operations ##
-
-    async def _wait_for_queue_space(self, maxsize: int) -> None:
-        while await self.redis.llen(self._k_queue) >= maxsize:
-            await anyio.sleep(0.5)
-
-    async def put_in_queue(self, data: bytes, maxsize: int = 16, timeout: float = 20.0) -> None:
-        """Add data to the transfer queue with backpressure control."""
+    async def put_chunk(self, data: bytes, timeout: float = 30.0) -> str:
+        """Add a chunk to the stream."""
+        fields = {'data': data, 'size': len(data)}
         with anyio.fail_after(timeout):
-            await self._wait_for_queue_space(maxsize)
-        await self.redis.lpush(self._k_queue, data)
+            stream_id = await self.redis.xadd(self._stream_key, fields)
+        return stream_id
 
-    async def get_from_queue(self, timeout: float = 20.0) -> bytes:
-        """Get data from the transfer queue with timeout."""
-        result = await self.redis.brpop([self._k_queue], timeout=timeout)
+    async def get_next_chunk(self, timeout: float = 30.0, last_id: str = '0') -> Tuple[str, bytes]:
+        """Read the next chunk from the stream (blocking)."""
+        params = {self._stream_key: last_id}
+        result = await self.redis.xread(params, count=1, block=int(timeout * 1000))
         if not result:
             raise TimeoutError("Timeout waiting for data")
 
-        _, data = result
-        return data
+        stream_name, messages = result[0]
+        chunk_id, fields = messages[0]
+        return chunk_id, fields[b'data']
 
-    ## Event operations ##
+    async def get_chunk_by_range(self, last_id: Optional[str] = None) -> Optional[Tuple[str, bytes]]:
+        """Read the next chunk from existing stream data (non-blocking)."""
+        if not await self.redis.exists(self._stream_key):
+            return None
 
-    async def set_event(self, event_name: str, expiry: float = 300.0) -> None:
-        """Set an event flag for this transfer."""
-        event_key = self.key(event_name)
+        if last_id is not None:
+            min_id = f'({last_id.decode() if isinstance(last_id, bytes) else last_id}'
+        else:
+            min_id = '0'
+
+        chunks = await self.redis.xrange(self._stream_key, min=min_id, max='+', count=1)
+        if not chunks:
+            return None
+        chunk_id, fields = chunks[0]
+        return chunk_id, fields[b'data']
+
+    async def set_event(self, event_name: str, expiry: float = None) -> None:
+        """Publish an event."""
+        expiry = expiry or self.EVENT_EXPIRY
+        event_key = f'transfer:{self.transfer_id}:{event_name}'
         event_marker_key = f'{event_key}:marker'
 
         await self.redis.set(event_marker_key, '1', ex=int(expiry))
         await self.redis.publish(event_key, '1')
 
-    async def _poll_marker(self, event_key: str) -> None:
-        """Poll for event marker existence."""
+    async def wait_for_event(self, event_name: str, timeout: float = None) -> None:
+        """Wait for an event using pub/sub and polling."""
+        timeout = timeout or self.EVENT_EXPIRY
+        event_key = f'transfer:{self.transfer_id}:{event_name}'
         event_marker_key = f'{event_key}:marker'
-        while not await self.redis.exists(event_marker_key):
-            await anyio.sleep(1)
-
-    async def _listen_for_message(self, pubsub: PubSub, event_key: str) -> None:
-        """Listen for pubsub messages."""
-        await pubsub.subscribe(event_key)
-        async for message in pubsub.listen():
-            if message and message['type'] == 'message':
-                return
-
-    async def wait_for_event(self, event_name: str, timeout: float = 300.0) -> None:
-        """Wait for an event to be set for this transfer."""
-        event_key = self.key(event_name)
         pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
+
+        async def poll_marker():
+            while not await self.redis.exists(event_marker_key):
+                await anyio.sleep(1)
+
+        async def listen_for_message():
+            await pubsub.subscribe(event_key)
+            async for message in pubsub.listen():
+                if message and message['type'] == 'message':
+                    return
 
         try:
             with anyio.fail_after(timeout):
                 async with anyio.create_task_group() as tg:
-                    tg.start_soon(self._poll_marker, event_key)
-                    tg.start_soon(self._listen_for_message, pubsub, event_key)
-
+                    tg.start_soon(poll_marker)
+                    tg.start_soon(listen_for_message)
         except TimeoutError:
-            self.error(f"Timeout waiting for event '{event_name}' after {timeout} seconds.")
+            self.error(f"Timeout waiting for event '{event_name}' after {timeout} seconds")
             raise
-
         finally:
             await pubsub.unsubscribe(event_key)
             await pubsub.aclose()
 
-    ## Metadata operations ##
-
     async def set_metadata(self, metadata: str) -> None:
-        """Store transfer metadata."""
+        """Store transfer metadata atomically."""
         challenge = random.randbytes(8)
         await self.redis.set(self._k_meta, challenge, nx=True)
         if await self.redis.get(self._k_meta) == challenge:
-            await self.redis.set(self._k_meta, metadata, ex=300)
+            await self.redis.set(self._k_meta, metadata, ex=self.METADATA_EXPIRY)
         else:
-            raise KeyError("Metadata already set for this transfer.")
+            raise KeyError("Metadata already set for this transfer")
 
-    async def get_metadata(self) -> str | None:
-        """Retrieve transfer metadata."""
+    async def get_metadata(self) -> Optional[str]:
+        """Get transfer metadata."""
         return await self.redis.get(self._k_meta)
 
-    ## Transfer state operations ##
-
     async def set_receiver_connected(self) -> bool:
-        """
-        Mark that a receiver has connected for this transfer.
-        Returns True if the flag was set, False if it was already created.
-        """
-        return bool(await self.redis.set(self._k_receiver_connected, '1', ex=300, nx=True))
+        """Mark receiver as connected (atomic)."""
+        return bool(await self.redis.set(self._k_receiver_connected, '1', ex=self.METADATA_EXPIRY, nx=True))
 
     async def is_receiver_connected(self) -> bool:
-        """Check if a receiver has already connected."""
+        """Check if receiver is connected."""
         return await self.redis.exists(self._k_receiver_connected) > 0
 
     async def set_completed(self) -> None:
-        """Mark the transfer as completed."""
-        await self.redis.set(f'completed:{self.transfer_id}', '1', ex=300, nx=True)
+        """Mark transfer as completed."""
+        await self.redis.set(f'transfer:{self.transfer_id}:completed', '1', ex=self.METADATA_EXPIRY, nx=True)
 
     async def is_completed(self) -> bool:
-        """Check if the transfer is marked as completed."""
-        return await self.redis.exists(f'completed:{self.transfer_id}') > 0
+        """Check if transfer is completed."""
+        return await self.redis.exists(f'transfer:{self.transfer_id}:completed') > 0
 
     async def set_interrupted(self) -> None:
-        """Mark the transfer as interrupted."""
-        await self.redis.set(f'interrupt:{self.transfer_id}', '1', ex=300, nx=True)
-        await self.redis.ltrim(self._k_queue, 0, 0)
+        """Mark transfer as interrupted."""
+        await self.redis.set(f'transfer:{self.transfer_id}:interrupt', '1', ex=self.STATE_EXPIRY, nx=True)
 
     async def is_interrupted(self) -> bool:
-        """Check if the transfer was interrupted."""
-        return await self.redis.exists(f'interrupt:{self.transfer_id}') > 0
+        """Check if transfer was interrupted."""
+        return await self.redis.exists(f'transfer:{self.transfer_id}:interrupt') > 0
 
-    ## Cleanup operations ##
+    async def save_upload_progress(self, bytes_uploaded: int, last_chunk_id: str) -> None:
+        """Save upload progress for resumption."""
+        progress = UploadProgress(bytes_uploaded=bytes_uploaded, last_chunk_id=last_chunk_id)
+        await self.redis.hset(self._progress_key, mapping=progress.to_redis())
+        await self.redis.expire(self._progress_key, self.PROGRESS_EXPIRY)
 
-    async def cleanup_started(self) -> bool:
-        """
-        Check if cleanup has already been initiated for this transfer.
-        This uses a set/get pattern with challenge to avoid race conditions.
-        """
-        challenge = random.randbytes(8)
-        await self.redis.set(self._k_cleanup, challenge, ex=60, nx=True)
-        if await self.redis.get(self._k_cleanup) == challenge:
-            return False
-        return True
+    async def get_upload_progress(self) -> Optional[UploadProgress]:
+        """Get upload progress."""
+        data = await self.redis.hgetall(self._progress_key)
+        return UploadProgress.from_redis(data) if data and b'bytes_uploaded' in data else None
+
+    async def save_download_progress(self, bytes_downloaded: int, last_read_id: str) -> None:
+        """Save download progress for resumption."""
+        progress = DownloadProgress(bytes_downloaded=bytes_downloaded, last_read_id=last_read_id)
+        await self.redis.hset(self._progress_key, mapping=progress.to_redis())
+        await self.redis.expire(self._progress_key, self.PROGRESS_EXPIRY)
+
+    async def get_download_progress(self) -> Optional[DownloadProgress]:
+        """Get download progress."""
+        data = await self.redis.hgetall(self._progress_key)
+        return DownloadProgress.from_redis(data) if data and b'bytes_downloaded' in data else None
+
+    async def set_sender_state(self, state: ClientState) -> None:
+        """Set sender state."""
+        await self.redis.hset(self._state_key, 'sender', int(state))
+        await self.redis.expire(self._state_key, self.STATE_EXPIRY)
+
+    async def get_sender_state(self) -> Optional[ClientState]:
+        """Get sender state."""
+        state = await self.redis.hget(self._state_key, 'sender')
+        return ClientState(int(state)) if state else None
+
+    async def set_receiver_state(self, state: ClientState) -> None:
+        """Set receiver state."""
+        await self.redis.hset(self._state_key, 'receiver', int(state))
+        await self.redis.expire(self._state_key, self.STATE_EXPIRY)
+
+    async def get_receiver_state(self) -> Optional[ClientState]:
+        """Get receiver state."""
+        state = await self.redis.hget(self._state_key, 'receiver')
+        return ClientState(int(state)) if state else None
 
     async def cleanup(self) -> int:
-        """Remove all keys related to this transfer."""
-        if await self.cleanup_started():
+        """Clean up all transfer-related keys from Redis."""
+        challenge = random.randbytes(8)
+        await self.redis.set(self._k_cleanup, challenge, ex=self.CLEANUP_LOCK_EXPIRY, nx=True)
+        if await self.redis.get(self._k_cleanup) != challenge:
             return 0
 
-        pattern = self.key('*')
-        keys_to_delete = set()
+        keys_to_delete = {self._stream_key, self._progress_key, self._state_key}
+        pattern = f'transfer:{self.transfer_id}:*'
 
         cursor = 0
         while True:
@@ -173,6 +208,6 @@ class Store(metaclass=HasLogging, name_from='transfer_id'):
                 break
 
         if keys_to_delete:
-            self.debug(f"- Cleaning up {len(keys_to_delete)} keys")
+            self.debug(f"Cleaning up {len(keys_to_delete)} keys")
             return await self.redis.delete(*keys_to_delete)
         return 0

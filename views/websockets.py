@@ -1,11 +1,11 @@
 import string
-import warnings
 from pydantic import ValidationError
-from fastapi import WebSocket, APIRouter, WebSocketDisconnect, BackgroundTasks
+from fastapi import WebSocket, APIRouter
 
 from lib.logging import get_logger
-from lib.callbacks import send_error_and_close
-from lib.transfer import FileMetadata, FileTransfer
+from lib.transfer import FileTransfer
+from lib.metadata import FileMetadata
+from lib.models import ClientState
 
 router = APIRouter()
 log = get_logger('websockets')
@@ -13,116 +13,112 @@ log = get_logger('websockets')
 
 @router.websocket("/send/{uid}")
 async def websocket_upload(websocket: WebSocket, uid: str):
-    """
-    Handles WebSockets file uploads such as those made via the form.
-
-    A JSON header with file metadata should be sent first.
-    Then, the client must wait for the signal before sending file chunks.
-    """
+    """Handles WebSocket file uploads."""
     if any(char not in string.ascii_letters + string.digits + '-' for char in uid):
-        log.debug(f"△ Invalid transfer ID.")
+        log.debug("△ Invalid transfer ID")
         await websocket.close(code=1008, reason="Invalid transfer ID")
         return
 
     await websocket.accept()
-    log.debug(f"△ Websocket upload request.")
+    log.debug("△ Websocket upload request")
 
     try:
         header = await websocket.receive_json()
         file = FileMetadata.get_from_json(header)
-
     except ValidationError as e:
-        log.warning("△ Invalid file metadata JSON header.", exc_info=e)
-        await websocket.send_text("Error: Invalid file metadata JSON header.")
+        log.warning("△ Invalid file metadata JSON header", exc_info=e)
+        await websocket.send_text("Error: Invalid file metadata JSON header")
         return
     except Exception as e:
-        log.error("△ Cannot decode file metadata JSON header.", exc_info=e)
-        await websocket.send_text("Error: Cannot decode file metadata JSON header.")
+        log.error("△ Cannot decode file metadata JSON header", exc_info=e)
+        await websocket.send_text("Error: Cannot decode file metadata JSON header")
         return
 
     log.info(f"△ Creating transfer: {file}")
 
     try:
         transfer = await FileTransfer.create(uid, file)
-    except KeyError as e:
-        log.warning("△ Transfer ID is already used.")
-        await websocket.send_text("Error: Transfer ID is already used.")
+    except KeyError:
+        log.warning("△ Transfer ID is already used")
+        await websocket.send_text("Error: Transfer ID is already used")
         return
     except (TypeError, ValidationError) as e:
-        log.error("△ Invalid transfer ID or file metadata.", exc_info=e)
-        await websocket.send_text("Error: Invalid transfer ID or file metadata.")
+        log.error("△ Invalid transfer ID or file metadata", exc_info=e)
+        await websocket.send_text("Error: Invalid transfer ID or file metadata")
         return
 
     try:
         await transfer.wait_for_client_connected()
     except TimeoutError:
-        log.warning("△ Receiver did not connect in time.")
-        await websocket.send_text(f"Error: Receiver did not connect in time.")
-        return
-    except Exception as e:
-        log.error("△ Error while waiting for receiver connection.", exc_info=e)
-        await websocket.send_text("Error: Error while waiting for receiver connection.")
+        log.warning("△ Receiver did not connect in time")
+        await websocket.send_text("Error: Receiver did not connect in time")
         return
 
     transfer.debug("△ Sending go-ahead...")
     await websocket.send_text("Go for file chunks")
 
     transfer.info("△ Starting upload...")
-    await transfer.collect_upload(
-        stream=websocket.iter_bytes(),
-        on_error=send_error_and_close(websocket),
-    )
+    await transfer.collect_upload(stream=websocket.iter_bytes())
 
-    transfer.info("△ Upload complete.")
+    sender_state = await transfer.store.get_sender_state()
+    if sender_state == ClientState.COMPLETE:
+        transfer.info("△ Upload complete")
+    elif sender_state == ClientState.ERROR:
+        await websocket.send_text("Error: Transfer failed")
 
 
-@warnings.deprecated(
-    "This endpoint is deprecated and will be removed soon. "
-    "It should not be used for reference, and it is disabled on the website."
-)
-@router.websocket("/receive/{uid}")
-async def websocket_download(background_tasks: BackgroundTasks, websocket: WebSocket, uid: str):
+@router.websocket("/resume/{uid}")
+async def websocket_resume_upload(websocket: WebSocket, uid: str):
+    """Resume an interrupted WebSocket upload."""
+    if any(char not in string.ascii_letters + string.digits + '-' for char in uid):
+        log.debug("△ Invalid transfer ID")
+        await websocket.close(code=1008, reason="Invalid transfer ID")
+        return
+
     await websocket.accept()
-    log.debug("▼ Websocket download request.")
+    log.debug(f"△ Resume upload request for {uid}")
+
+    try:
+        header = await websocket.receive_json()
+        file = FileMetadata.get_from_json(header)
+    except ValidationError as e:
+        log.warning("△ Invalid file metadata JSON header", exc_info=e)
+        await websocket.send_text("Error: Invalid file metadata JSON header")
+        return
+    except Exception as e:
+        log.error("△ Cannot decode file metadata JSON header", exc_info=e)
+        await websocket.send_text("Error: Cannot decode file metadata JSON header")
+        return
 
     try:
         transfer = await FileTransfer.get(uid)
-    except KeyError:
-        log.warning("▼ File not found.")
-        await websocket.send_text("File not found")
-        return
 
-    if await transfer.is_receiver_connected():
-        log.warning("▼ A client is already downloading this file.")
-        await websocket.send_text("Error: A client is already downloading this file.")
-        return
-
-    file_name, file_size, file_type = transfer.get_file_info()
-    transfer.debug(f"▼ File: name={file_name}, size={file_size}, type={file_type}")
-    await websocket.send_json({'file_name': file_name, 'file_size': file_size, 'file_type': file_type})
-
-    transfer.info("▼ Waiting for go-ahead...")
-    while True:
-        try:
-            msg = await websocket.receive_text()
-            if msg == "Go for file chunks":
-                break
-            transfer.warning(f"▼ Unexpected message: {msg}")
-        except WebSocketDisconnect:
-            transfer.warning("▼ Client disconnected while waiting for go-ahead")
+        stored_file = transfer.file
+        if stored_file.name != file.name or stored_file.size != file.size or stored_file.type != file.type:
+            log.warning("△ Resume request does not match original transfer")
+            await websocket.send_text("Error: File metadata does not match original transfer")
             return
 
-    if not await transfer.set_receiver_connected():
-        log.warning("▼ A client is already downloading this file.")
-        await websocket.send_text("Error: A client is already downloading this file.")
+        resume_from = await transfer.get_resume_position()
+        log.info(f"△ Resuming transfer from byte {resume_from}: {file}")
+
+    except KeyError:
+        log.warning("△ Transfer not found for resumption")
+        await websocket.send_text("Error: Transfer not found")
+        return
+    except Exception as e:
+        log.error("△ Error preparing resume", exc_info=e)
+        await websocket.send_text(f"Error: {str(e)}")
         return
 
-    transfer.info("▼ Notifying client is connected.")
-    await transfer.set_client_connected()
-    background_tasks.add_task(transfer.finalize_download)
+    transfer.debug("△ Sending resume position...")
+    await websocket.send_text(f"Resume from: {resume_from}")
 
-    transfer.info("▼ Starting download...")
-    async for chunk in transfer.supply_download(on_error=send_error_and_close(websocket)):
-        await websocket.send_bytes(chunk)
-    await websocket.send_bytes(b'')
-    transfer.info("▼ Download complete.")
+    transfer.info("△ Resuming upload...")
+    await transfer.collect_upload(stream=websocket.iter_bytes(), resume_from=resume_from)
+
+    sender_state = await transfer.store.get_sender_state()
+    if sender_state == ClientState.COMPLETE:
+        transfer.info("△ Resume upload complete")
+    elif sender_state == ClientState.ERROR:
+        await websocket.send_text("Error: Transfer failed")

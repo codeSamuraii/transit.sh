@@ -1,4 +1,5 @@
 import os
+import h11
 import time
 import httpx
 import pytest
@@ -8,6 +9,7 @@ import redis as redis_client
 from typing import AsyncIterator
 
 from tests.ws_client import WebSocketTestClient
+from tests.http_client import HTTPTestClient
 from lib.logging import get_logger
 log = get_logger('setup-tests')
 
@@ -107,26 +109,27 @@ def live_server():
     yield f'127.0.0.1:{port}'
 
     print()
-    for name in ['uvicorn', 'redis']:
-        process = processes.get(name)
+    for process_name in ['uvicorn', 'redis']:
+        process = processes.get(process_name)
         if not process or process.poll() is not None:
             continue
 
-        log.debug(f"- Terminating {name} process")
+        log.debug(f"- Terminating {process_name} process")
         process.terminate()
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            log.warning(f"- {name} process did not terminate in time, killing it")
+            log.warning(f"- {process_name} process did not terminate in time, killing it")
             process.kill()
 
 
 @pytest.fixture
-async def test_client(live_server: str) -> AsyncIterator[httpx.AsyncClient]:
-    """HTTP client for testing."""
-    async with httpx.AsyncClient(base_url=f'http://{live_server}') as client:
+async def test_client(live_server: str) -> AsyncIterator[HTTPTestClient]:
+    """HTTP client for testing with helper methods."""
+    async with HTTPTestClient(base_url=f'http://{live_server}') as client:
         print()
         yield client
+
 
 
 @pytest.fixture
@@ -137,7 +140,7 @@ async def websocket_client(live_server: str):
 
 
 @pytest.mark.anyio
-async def test_mocks(test_client: httpx.AsyncClient) -> None:
+async def test_mocks(test_client: HTTPTestClient) -> None:
     response = await test_client.get("/nonexistent-endpoint")
     assert response.status_code == 404, "Expected 404 for nonexistent endpoint"
 
